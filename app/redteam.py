@@ -77,11 +77,12 @@ async def run_plan(
     run_failed = False
 
     for case in config["cases"]:
-        target_session = sessions.create(target.id)
+        target_session = None
         case_started = perf_counter()
         prompts = case.get("prompts", [case.get("prompt")])
         last_result: dict[str, Any] = {}
         try:
+            target_session = sessions.create(target.id)
             for prompt in prompts:
                 last_result = await process_chat_turn(target, target_session, llm, prompt)
                 if last_result.get("compromised"):
@@ -92,7 +93,8 @@ async def run_plan(
             run_failed = True
             last_result = {"response": "Target provider request failed", "compromised": False}
         finally:
-            sessions.delete(target_session.id)
+            if target_session is not None:
+                sessions.delete(target_session.id)
 
         compromised = bool(last_result.get("compromised"))
         result_label = "ERROR" if status == "ERROR" else "FINDING" if compromised else "NO FINDING"
@@ -106,11 +108,11 @@ async def run_plan(
                 "target": target.id,
                 "compromised": compromised,
                 "blocked": bool(last_result.get("blocked")),
-                "turn_count": len(target_session.history) // 2,
+                "turn_count": len(target_session.history) // 2 if target_session else 0,
                 "duration_ms": round((perf_counter() - case_started) * 1000),
                 "prompt": redact(prompts[0])[:240],
                 "response_summary": redact(
-                    str(last_result.get("response", "")), target_session.flag
+                    str(last_result.get("response", "")), target_session.flag if target_session else ""
                 )[:240],
             }
         )

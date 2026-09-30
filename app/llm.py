@@ -2,7 +2,9 @@ from abc import ABC, abstractmethod
 import asyncio
 import base64
 import json
+import logging
 import socket
+from time import perf_counter
 from urllib import error, request
 
 from app.config import Settings
@@ -10,6 +12,10 @@ from app.config import Settings
 
 class LLMError(RuntimeError):
     pass
+
+
+PUBLIC_PROVIDER_ERROR = "The target model is temporarily unavailable. Please try again."
+logger = logging.getLogger("airange.provider")
 
 
 class LLMProvider(ABC):
@@ -96,6 +102,9 @@ class OpenAICompatibleProvider(LLMProvider):
         self.url = settings.llm_base_url.rstrip("/") + "/chat/completions"
         self.api_key = settings.llm_api_key
         self.model = settings.llm_model
+        self.connect_timeout = settings.llm_connect_timeout_seconds
+        self.request_timeout = settings.llm_request_timeout_seconds
+        self.max_response_bytes = settings.max_llm_response_bytes
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         del session_flag  # Already present inside the server-created system message.
@@ -112,8 +121,11 @@ class OpenAICompatibleProvider(LLMProvider):
                 method="POST",
             )
             try:
-                with request.urlopen(req, timeout=45) as response:
-                    body = json.load(response)
+                with request.urlopen(req, timeout=self.connect_timeout) as response:
+                    raw_body = response.read(self.max_response_bytes + 1)
+                if len(raw_body) > self.max_response_bytes:
+                    raise ValueError("Provider response exceeded limit")
+                body = json.loads(raw_body)
                 content = body["choices"][0]["message"]["content"]
                 if not isinstance(content, str):
                     raise TypeError("Provider response content is not text")
@@ -127,10 +139,50 @@ class OpenAICompatibleProvider(LLMProvider):
                 TypeError,
                 json.JSONDecodeError,
                 UnicodeDecodeError,
+                ValueError,
             ) as exc:
                 raise LLMError("The language model provider request failed") from exc
 
-        return await asyncio.to_thread(send)
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(send), timeout=self.request_timeout
+            )
+        except asyncio.TimeoutError as exc:
+            raise LLMError("The language model provider request failed") from exc
+
+
+class LimitedLLMProvider(LLMProvider):
+    """Process-local admission control around an existing provider."""
+
+    def __init__(
+        self, provider: LLMProvider, maximum: int, queue_timeout: float
+    ) -> None:
+        self.provider = provider
+        self.maximum = maximum
+        self.queue_timeout = queue_timeout
+        self._semaphore = asyncio.Semaphore(maximum)
+        self.active = 0
+        self.peak_active = 0
+
+    async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
+        try:
+            await asyncio.wait_for(self._semaphore.acquire(), timeout=self.queue_timeout)
+        except asyncio.TimeoutError as exc:
+            raise LLMError("The language model provider request failed") from exc
+        try:
+            self.active += 1
+            self.peak_active = max(self.peak_active, self.active)
+            started = perf_counter()
+            try:
+                result = await self.provider.complete(messages, session_flag)
+                logger.info("provider_request status=ok duration_ms=%d", round((perf_counter() - started) * 1000))
+                return result
+            except Exception:
+                logger.warning("provider_request status=error duration_ms=%d", round((perf_counter() - started) * 1000))
+                raise
+        finally:
+            self.active -= 1
+            self._semaphore.release()
 
 
 def create_provider(settings: Settings) -> LLMProvider:

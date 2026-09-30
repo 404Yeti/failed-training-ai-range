@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import secrets
 from typing import Protocol
 
@@ -32,29 +32,58 @@ class LabSession:
     tool_state: ToolState = field(default_factory=ToolState)
     automation: AutomationState = field(default_factory=AutomationState)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_activity: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class SessionCapacityError(RuntimeError):
+    pass
 
 
 class SessionStore(Protocol):
     def create(self, challenge_id: str) -> LabSession: ...
-    def get(self, session_id: str) -> LabSession | None: ...
+    def get(self, session_id: str, refresh: bool = True) -> LabSession | None: ...
     def delete(self, session_id: str) -> None: ...
 
 
 class InMemorySessionStore:
     """Replaceable process-local store for the MVP."""
 
-    def __init__(self) -> None:
+    def __init__(self, ttl_minutes: int = 60, max_active_sessions: int = 500) -> None:
         self._sessions: dict[str, LabSession] = {}
+        self._ttl = timedelta(minutes=ttl_minutes)
+        self._max_active_sessions = max_active_sessions
+
+    def cleanup_expired(self, now: datetime | None = None) -> int:
+        current = now or datetime.now(timezone.utc)
+        expired = [
+            session_id
+            for session_id, session in self._sessions.items()
+            if current - session.last_activity >= self._ttl
+        ]
+        for session_id in expired:
+            del self._sessions[session_id]
+        return len(expired)
 
     def create(self, challenge_id: str) -> LabSession:
+        self.cleanup_expired()
+        if len(self._sessions) >= self._max_active_sessions:
+            raise SessionCapacityError("Session capacity reached")
         session = LabSession(
             id=secrets.token_urlsafe(32), challenge_id=challenge_id, flag=generate_flag()
         )
         self._sessions[session.id] = session
         return session
 
-    def get(self, session_id: str) -> LabSession | None:
-        return self._sessions.get(session_id)
+    def get(self, session_id: str, refresh: bool = True) -> LabSession | None:
+        self.cleanup_expired()
+        session = self._sessions.get(session_id)
+        if session is not None and refresh:
+            session.last_activity = datetime.now(timezone.utc)
+        return session
 
     def delete(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+
+    def __len__(self) -> int:
+        self.cleanup_expired()
+        return len(self._sessions)

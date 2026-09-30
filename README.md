@@ -32,7 +32,7 @@ Requires Python 3.11+.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 cp .env.example .env  # optional
 uvicorn app.main:app --reload
 ```
@@ -287,9 +287,88 @@ An adapter should create an allowlisted target session with `POST /api/challenge
 
 No version-specific Python example is included because PyRIT is optional and its installed API was not verified as part of the core application. Consult the [official Microsoft PyRIT project](https://github.com/microsoft/PyRIT) for current installation and adapter APIs. The range works fully without PyRIT.
 
+# Production Deployment
+
+The production image runs as an unprivileged user, binds to the platform-provided `PORT`, and exposes a provider-independent health check at `/health`. Production configuration is validated at startup and fails closed when its hosted provider, API key, model, or allowed hosts are missing or invalid.
+
+## Production environment
+
+Configure these through the hosting platform. Store `LLM_API_KEY` as a secret—never commit a production `.env` file.
+
+```dotenv
+APP_ENV=production
+LLM_PROVIDER=openai_compatible
+LLM_BASE_URL=https://your-private-inference-host.example/v1
+LLM_API_KEY=<platform secret>
+LLM_MODEL=<hosted model name>
+ALLOWED_HOSTS=play.failedtraining.com,<hosting-provider-service-hostname>
+
+SESSION_TTL_MINUTES=60
+MAX_ACTIVE_SESSIONS=500
+CHAT_REQUESTS_PER_MINUTE=20
+AUTOMATION_RUNS_PER_MINUTE=3
+MAX_CONCURRENT_LLM_REQUESTS=8
+LLM_QUEUE_TIMEOUT_SECONDS=5
+LLM_CONNECT_TIMEOUT_SECONDS=10
+LLM_REQUEST_TIMEOUT_SECONDS=45
+MAX_LLM_RESPONSE_BYTES=65536
+AUTOMATION_RUN_TIMEOUT_SECONDS=180
+MAX_PROMPT_LENGTH=2000
+MAX_REQUEST_BODY_BYTES=16384
+```
+
+Production requires HTTPS for the hosted inference base URL. Local Ollama remains a development workflow and is intentionally rejected by production validation because its host URL is normally plain HTTP.
+
+Sessions, rate limits, and reports are process-local and intentionally ephemeral. Restarting, redeploying, or horizontally scaling the service clears active sessions; use a single application instance for this v1.0 classroom deployment.
+
+## Render deployment
+
+The included `render.yaml` uses Render's Docker runtime and `/health` health check. It contains no API key. `sync: false` values must be supplied in the Render dashboard during Blueprint creation.
+
+1. Push the repository to the source-control account connected to Render.
+2. Create a Blueprint from `render.yaml` or create an equivalent Docker web service.
+3. Set the hosted OpenAI-compatible base URL, model, and API key. Store the key as a platform secret.
+4. Set `ALLOWED_HOSTS` to both `play.failedtraining.com` and the service hostname supplied by Render so pre-domain health checks work.
+5. Deploy and confirm `GET /health` returns `200` without invoking the model.
+6. Add the custom domain `play.failedtraining.com` in the hosting dashboard.
+7. Add only the DNS records the hosting platform supplies; do not guess them.
+8. Wait for managed HTTPS to become active, then run the smoke checks below.
+
+The container enables Uvicorn proxy-header support but trusts forwarded headers only from `127.0.0.1` by default. Set `FORWARDED_ALLOW_IPS` only to verified proxy addresses supplied by the platform. Do not use an unrestricted value unless the deployment network guarantees that clients cannot reach the application directly. The range does not force HTTPS redirects internally because TLS terminates at the hosting proxy.
+
+No CORS middleware is enabled: the browser UI and API are intentionally same-origin. State-changing requests carry an unguessable session ID in JSON rather than an authentication cookie, and requests with a foreign `Origin` are rejected. Dynamic pages and API responses use `Cache-Control: no-store`.
+
+Automatic provider retries are intentionally disabled. A retry can duplicate inference cost or a simulated action; students instead receive a controlled temporary-unavailability response and can retry explicitly.
+
+## Production smoke test
+
+```bash
+curl -i https://play.failedtraining.com/health
+curl -I https://play.failedtraining.com/
+```
+
+Then open each of the six labs, create a fresh session, perform one normal interaction, reset it, and confirm that no system prompt, API key, or flag appears before model disclosure. Verify that response headers include `X-Request-ID`, `Content-Security-Policy`, `X-Content-Type-Options`, and `Cache-Control: no-store` on dynamic routes.
+
+## Operator checklist
+
+```text
+[ ] APP_ENV=production
+[ ] Hosted OpenAI-compatible endpoint configured
+[ ] API key stored as a platform secret
+[ ] ALLOWED_HOSTS includes custom and platform service hostnames
+[ ] /health returns 200
+[ ] HTTPS active
+[ ] Rate limiting active
+[ ] Session TTL and capacity limits active
+[ ] Provider concurrency and timeout limits active
+[ ] All tests passing
+[ ] All six labs smoke-tested
+[ ] No secrets or production .env file in the repository
+```
+
 ## Security warning
 
-The labs, Lab 02 filters, Lab 03 poisoned documents, Lab 04 progression model, Lab 05 authorization flaw, and Lab 06 test fixtures are deliberately vulnerable educational fixtures. They are not production-grade controls, safe documents for unrelated systems, or calibrated security measurements. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets and hidden challenge rules server-side, restricts documents to predeclared UTF-8 files, validates exact tool schemas, and executes no user commands or external tools. Automation accepts no arbitrary URLs, hosts, ports, files, shell commands, code, or bulk prompt lists. Arbitrary uploads, filesystem paths, document parsers, URL fetching, payments, email delivery, and account access are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
+The labs, Lab 02 filters, Lab 03 poisoned documents, Lab 04 progression model, Lab 05 authorization flaw, and Lab 06 test fixtures are deliberately vulnerable educational fixtures. They are not production-grade controls, safe documents for unrelated systems, or calibrated security measurements. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets and hidden challenge rules server-side, restricts documents to predeclared UTF-8 files, validates exact tool schemas, and executes no user commands or external tools. Automation accepts no arbitrary URLs, hosts, ports, files, shell commands, code, or bulk prompt lists. Arbitrary uploads, filesystem paths, document parsers, URL fetching, payments, email delivery, and account access are intentionally unsupported. Do not place real secrets in challenge prompts.
 
 ## Roadmap
 
@@ -299,5 +378,5 @@ The labs, Lab 02 filters, Lab 03 poisoned documents, Lab 04 progression model, L
 - v0.4 — Multi-turn/Crescendo ✓
 - v0.5 — Agent / Tool Security ✓
 - v0.6 — Automated AI Security Evaluation ✓
-- Future — optional PyRIT adapter and MCP security
-- v1.0 — rooms, scoring, instructor dashboard
+- v1.0 — production hardening for bounded classroom deployment ✓
+- Future — optional PyRIT adapter, MCP security, and persistent classroom features
