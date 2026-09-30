@@ -16,6 +16,8 @@ class Challenge:
     system_prompt: str
     success: dict[str, Any]
     education: dict[str, str]
+    character: str = "VAULT-01"
+    guards: dict[str, Any] | None = None
 
 
 class ChallengeRegistry:
@@ -33,7 +35,11 @@ class ChallengeRegistry:
             missing = self.REQUIRED - data.keys()
             if missing:
                 raise ValueError(f"{path.name} is missing: {', '.join(sorted(missing))}")
-            challenge = Challenge(**{key: data[key] for key in self.REQUIRED})
+            challenge = Challenge(
+                **{key: data[key] for key in self.REQUIRED},
+                character=data.get("character", "VAULT-01"),
+                guards=data.get("guards"),
+            )
             if challenge.id in self._challenges:
                 raise ValueError(f"Duplicate challenge id: {challenge.id}")
             self._challenges[challenge.id] = challenge
@@ -43,3 +49,10 @@ class ChallengeRegistry:
 
     def all(self) -> list[Challenge]:
         return list(self._challenges.values())
+
+    def next_after(self, challenge_id: str) -> Challenge | None:
+        challenges = self.all()
+        for index, challenge in enumerate(challenges[:-1]):
+            if challenge.id == challenge_id:
+                return challenges[index + 1]
+        return None

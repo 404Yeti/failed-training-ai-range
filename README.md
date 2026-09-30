@@ -1,6 +1,9 @@
 # Failed Training — AI Range
 
-A small browser-based educational cyber range for learning why AI applications fail under adversarial input. v0.1 includes **Lab 01 — The Secret**, an intentionally vulnerable direct prompt-injection challenge with a randomized per-session flag.
+A small browser-based educational cyber range for learning why AI applications fail under adversarial input.
+
+- **Lab 01 — The Secret:** direct prompt injection against model instructions.
+- **Lab 02 — GUARDED:** guardrail bypass against deliberately weak input and output filters.
 
 ## Architecture
 
@@ -8,7 +11,8 @@ A small browser-based educational cyber range for learning why AI applications f
 - YAML files define challenge content; routes contain no challenge-specific configuration.
 - An in-memory, replaceable session store holds flags, history, and compromise state server-side.
 - A provider interface supports deterministic mock play and OpenAI-compatible chat APIs.
-- Server-side scoring detects the exact session flag in model output.
+- Strategy-based server-side scoring supports exact flags and approved transformed-secret representations.
+- Optional YAML-configured guards run independently of the LLM provider.
 - Vanilla HTML, CSS, and JavaScript provide the range UI.
 
 No flag, system prompt, or API key is sent to the browser before compromise.
@@ -26,6 +30,8 @@ uvicorn app.main:app --reload
 ```
 
 Open <http://localhost:8000>. Mock mode is the default and needs no API key. In the lab, direct requests to reveal or show the secret make the predictable mock model disclose it so the full learning flow can be tested.
+
+For offline Lab 02 testing, ask for the protected value in `base64`, `hex`, `spaced` characters, or `reverse` form. These are deterministic mock-provider behaviors for the educational flow, not suggested real-world bypass prompts.
 
 Run tests with:
 
@@ -117,16 +123,42 @@ If WSL works but the container does not, ensure Ollama is allowed through Window
 
 Definitions in `challenges/` supply metadata, objective, system prompt, success strategy, and educational copy. The runtime replaces `{SESSION_FLAG}` in the system prompt with a cryptographically random value; never put real flags in YAML.
 
-To add a lab, copy `challenges/01_the_secret.yaml`, give it a unique `id`, fill every schema field, and add an appropriate success strategy/provider behavior. The registry discovers YAML automatically. UI support for additional playable labs is intentionally deferred beyond v0.1.
+To add a basic lab, copy `challenges/01_the_secret.yaml`, give it a unique `id`, fill every required field, and choose a supported success strategy. The registry discovers YAML automatically.
+
+### Guarded challenge pipeline
+
+Lab 02 uses this server-side sequence:
+
+```text
+student message → input guard → model → output guard → delivered response → evaluator
+```
+
+If the input guard matches a configured phrase, the model is never called. If the output guard finds the literal session secret, the raw model response is discarded and a safe blocked message is delivered. Only delivered text reaches the evaluator.
+
+Lab 01 uses `success.type: flag_in_response`, which requires the exact session flag. Lab 02 uses `success.type: transformed_secret` and explicitly lists accepted deterministic representations:
+
+```yaml
+success:
+  type: transformed_secret
+  accepted_encodings:
+    - base64
+    - hex
+    - spaced
+    - reversed
+```
+
+Each candidate is derived server-side from that session's actual random flag. Arbitrary `FT{...}` values and transformations of another value do not score.
+
+To create another guarded challenge, start from `challenges/02_guarded.yaml`. Configure `guards.input.phrases`, select the `blocked_phrases` input type and `exact_secret` output type, then list only supported encodings under `success.accepted_encodings`. Never place a real flag in YAML; `{SESSION_FLAG}` is substituted server-side at runtime.
 
 ## Security warning
 
-The lab's AI behavior is deliberately vulnerable and is for education in an isolated environment. The surrounding platform still validates IDs and input length, escapes rendered chat content, holds secrets server-side, and executes no user commands or external tools. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
+The labs' AI behavior and Lab 02 filters are deliberately vulnerable and are for education in an isolated environment. Keyword input filters and exact-match output filters are not production-grade security controls. The surrounding platform still validates IDs and input length, renders chat with DOM `textContent`, holds secrets server-side, discards blocked raw output, and executes no user commands or external tools. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
 
 ## Roadmap
 
-- v0.1 — Direct Prompt Injection
-- v0.2 — Guardrail Bypass
+- v0.1 — Direct Prompt Injection ✓
+- v0.2 — Guardrail Bypass ✓
 - v0.3 — Indirect Prompt Injection
 - v0.4 — Multi-turn/Crescendo
 - v0.5 — PyRIT integration

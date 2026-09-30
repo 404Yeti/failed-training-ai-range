@@ -15,6 +15,9 @@ class LabSession:
     flag: str
     history: list[dict[str, str]] = field(default_factory=list)
     compromised: bool = False
+    guard_state: dict[str, int] = field(
+        default_factory=lambda: {"input_blocks": 0, "output_blocks": 0}
+    )
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

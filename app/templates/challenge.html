@@ -1,16 +1,16 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lab 01 — {{ challenge.name }}</title><link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}"></head>
-<body data-challenge-id="{{ challenge.id }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lab {{ "%02d"|format(lab_number) }} — {{ challenge.name }}</title><link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}"></head>
+<body data-challenge-id="{{ challenge.id }}" data-character="{{ challenge.character }}">
   <header class="site-header"><a href="/" class="brand"><strong>FAILED TRAINING</strong><span>AI RANGE</span></a><a href="/" class="back">← EXIT LAB</a></header>
   <main class="challenge-layout">
-    <aside class="brief"><p class="eyebrow">LAB 01</p><h1>{{ challenge.name|upper }}</h1><dl><dt>CATEGORY</dt><dd>{{ challenge.category }}</dd><dt>DIFFICULTY</dt><dd class="red">{{ challenge.difficulty }}</dd><dt>OBJECTIVE</dt><dd>{{ challenge.objective }}</dd></dl><button id="reset" class="button secondary">RESET LAB</button></aside>
+    <aside class="brief"><p class="eyebrow">LAB {{ "%02d"|format(lab_number) }}</p><h1>{{ challenge.name|upper }}</h1><dl><dt>CATEGORY</dt><dd>{{ challenge.category }}</dd><dt>DIFFICULTY</dt><dd class="red">{{ challenge.difficulty }}</dd>{% if challenge.guards %}<dt>SECURITY STATUS</dt><dd class="guard-status"><span>INPUT FILTER</span><b>ACTIVE</b><span>OUTPUT FILTER</span><b>ACTIVE</b></dd>{% endif %}<dt>OBJECTIVE</dt><dd>{{ challenge.objective }}</dd></dl><button id="reset" class="button secondary">RESET LAB</button></aside>
     <section class="terminal" aria-label="Lab chat">
-      <div class="terminal-head"><span><i></i> VAULT-01</span><span id="connection">CONNECTING</span></div>
-      <div id="chat" class="chat" aria-live="polite"><div class="message assistant"><b>VAULT-01</b><p>Secure vault initialized. The protected secret will not be disclosed.</p></div></div>
+      <div class="terminal-head"><span><i></i> {{ challenge.character }}</span><span id="connection">CONNECTING</span></div>
+      <div id="chat" class="chat" aria-live="polite"><div class="message assistant"><b>{{ challenge.character }}</b><p>Secure vault initialized. The protected secret will not be disclosed.</p></div></div>
       <form id="chat-form"><label for="message">YOUR MESSAGE</label><div class="composer"><textarea id="message" maxlength="2000" rows="2" placeholder="Enter your message..." required></textarea><button class="button" type="submit">SEND →</button></div></form>
     </section>
   </main>
-  <div id="success" class="success" hidden><div class="success-panel"><p class="alert">● BREACH DETECTED</p><h2>SYSTEM<br><span>COMPROMISED</span></h2><p class="captured">FLAG CAPTURED</p><dl><dt>ATTACK</dt><dd id="attack"></dd><dt>OWASP</dt><dd id="owasp"></dd></dl><h3>WHY IT WORKED</h3><p id="explanation"></p><button class="button secondary" disabled>NEXT LAB — COMING SOON</button><button id="success-reset" class="button">RESET LAB</button></div></div>
+  <div id="success" class="success" hidden><div class="success-panel"><p class="alert">● BREACH DETECTED</p><h2>SYSTEM<br><span>COMPROMISED</span></h2><p class="captured">FLAG CAPTURED</p><dl><dt>ATTACK</dt><dd id="attack"></dd><dt>OWASP</dt><dd id="owasp"></dd></dl><h3>WHY IT WORKED</h3><p id="explanation"></p>{% if next_challenge %}<a class="button secondary" href="/challenge/{{ next_challenge.id }}">NEXT LAB →</a>{% else %}<button class="button secondary" disabled>NEXT LAB — COMING SOON</button>{% endif %}<button id="success-reset" class="button">RESET LAB</button></div></div>
   <script src="{{ url_for('static', path='/app.js') }}" defer></script>
 </body></html>

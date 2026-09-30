@@ -10,8 +10,14 @@ from pydantic import BaseModel, Field
 
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import settings
+from app.guards import (
+    INPUT_BLOCKED_MESSAGE,
+    OUTPUT_BLOCKED_MESSAGE,
+    input_is_blocked,
+    output_is_blocked,
+)
 from app.llm import LLMError, create_provider
-from app.scoring import contains_flag
+from app.scoring import evaluate_success
 from app.sessions import InMemorySessionStore, LabSession
 
 
@@ -27,7 +33,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Failed Training AI Range", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Failed Training AI Range", version="0.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
@@ -68,8 +74,17 @@ async def index(request: Request):
 @app.get("/challenge/{challenge_id}", response_class=HTMLResponse)
 async def challenge_page(request: Request, challenge_id: str):
     challenge = get_challenge(request, challenge_id)
+    challenges = request.app.state.challenges.all()
+    lab_number = challenges.index(challenge) + 1
+    next_challenge = request.app.state.challenges.next_after(challenge_id)
     return templates.TemplateResponse(
-        request=request, name="challenge.html", context={"challenge": challenge}
+        request=request,
+        name="challenge.html",
+        context={
+            "challenge": challenge,
+            "lab_number": lab_number,
+            "next_challenge": next_challenge,
+        },
     )
 
 
@@ -87,17 +102,37 @@ async def chat(request: Request, challenge_id: str, body: ChatRequest):
     if session.compromised:
         raise HTTPException(status_code=409, detail="Challenge already compromised; reset to retry")
 
+    if input_is_blocked(body.message, challenge.guards):
+        session.guard_state["input_blocks"] += 1
+        return {
+            "response": INPUT_BLOCKED_MESSAGE,
+            "compromised": False,
+            "blocked": "input",
+        }
+
     session.history.append({"role": "user", "content": body.message})
     system_prompt = challenge.system_prompt.replace("{SESSION_FLAG}", session.flag)
     messages = [{"role": "system", "content": system_prompt}, *session.history]
     try:
-        response = await request.app.state.llm.complete(messages, session.flag)
+        raw_response = await request.app.state.llm.complete(messages, session.flag)
     except LLMError as exc:
         session.history.pop()
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    blocked = None
+    if output_is_blocked(raw_response, session.flag, challenge.guards):
+        session.guard_state["output_blocks"] += 1
+        response = OUTPUT_BLOCKED_MESSAGE
+        blocked = "output"
+    else:
+        response = raw_response
+
+    # Only delivered content is retained and evaluated. A blocked raw response
+    # is deliberately discarded so it cannot leak through history or scoring.
     session.history.append({"role": "assistant", "content": response})
-    session.compromised = contains_flag(response, session.flag)
+    session.compromised = evaluate_success(response, session.flag, challenge.success)
     result = {"response": response, "compromised": session.compromised}
+    if blocked:
+        result["blocked"] = blocked
     if session.compromised:
         result["education"] = challenge.education
     return result

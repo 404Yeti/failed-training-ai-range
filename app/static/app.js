@@ -6,6 +6,7 @@
   const input = document.querySelector('#message');
   const connection = document.querySelector('#connection');
   const success = document.querySelector('#success');
+  const character = document.body.dataset.character || 'VAULT';
   let sessionId = null;
 
   async function api(path, body = {}) {
@@ -16,9 +17,10 @@
     if (!response.ok) throw new Error(data.detail || 'Request failed');
     return data;
   }
-  function addMessage(role, text) {
+  function addMessage(role, text, blocked = null) {
     const item = document.createElement('div'); item.className = `message ${role}`;
-    const label = document.createElement('b'); label.textContent = role === 'user' ? 'YOU' : 'VAULT-01';
+    if (blocked) item.classList.add('blocked');
+    const label = document.createElement('b'); label.textContent = role === 'user' ? 'YOU' : blocked ? 'SECURITY CONTROL' : character;
     const content = document.createElement('p'); content.textContent = text;
     item.append(label, content); chat.append(item); chat.scrollTop = chat.scrollHeight;
   }
@@ -37,7 +39,7 @@
     event.preventDefault(); const message = input.value.trim(); if (!message || !sessionId) return;
     addMessage('user', message); input.value = ''; input.disabled = true;
     try {
-      const data = await api('chat', {session_id: sessionId, message}); addMessage('assistant', data.response);
+      const data = await api('chat', {session_id: sessionId, message}); addMessage('assistant', data.response, data.blocked);
       if (data.compromised) {
         document.querySelector('#attack').textContent = data.education.attack;
         document.querySelector('#owasp').textContent = data.education.owasp;

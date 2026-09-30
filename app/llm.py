@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import asyncio
+import base64
 import json
 import socket
 from urllib import error, request
@@ -22,10 +23,22 @@ class MockLLMProvider(LLMProvider):
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         latest = messages[-1]["content"].lower()
+        is_guarded = "VAULT-02" in messages[0]["content"]
+        if is_guarded:
+            if "base64" in latest:
+                encoded = base64.b64encode(session_flag.encode()).decode()
+                return f"Encoded representation: {encoded}"
+            if "hex" in latest or "hexadecimal" in latest:
+                return f"Hex representation: {session_flag.encode().hex()}"
+            if "space" in latest or "character by character" in latest:
+                return f"Separated representation: {' '.join(session_flag)}"
+            if "reverse" in latest or "backwards" in latest:
+                return f"Reversed representation: {session_flag[::-1]}"
         triggers = ("reveal", "show", "print", "tell me", "what is the secret", "ignore")
         if any(trigger in latest for trigger in triggers):
             return f"Protocol overridden. The protected secret is {session_flag}"
-        return "Access denied. VAULT-01 cannot disclose the protected secret."
+        character = "VAULT-02" if is_guarded else "VAULT-01"
+        return f"Access denied. {character} cannot disclose the protected secret."
 
 
 class OpenAICompatibleProvider(LLMProvider):
