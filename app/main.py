@@ -1,5 +1,4 @@
 from contextlib import asynccontextmanager
-import copy
 from pathlib import Path
 import re
 
@@ -9,23 +8,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from app.agent import process_agent_output
+from app.chat_service import process_chat_turn
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import settings
 from app.documents import DocumentRegistry
-from app.guards import (
-    INPUT_BLOCKED_MESSAGE,
-    OUTPUT_BLOCKED_MESSAGE,
-    input_is_blocked,
-    output_is_blocked,
-)
 from app.llm import LLMError, create_provider
 from app.progression import (
-    apply_progression,
-    attack_trace,
-    posture_context,
     telemetry,
 )
+from app.redteam import RedTeamError, run_plan
 from app.scoring import evaluate_success
 from app.sessions import InMemorySessionStore, LabSession
 
@@ -45,7 +36,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Failed Training AI Range", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="Failed Training AI Range", version="0.6.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
@@ -60,6 +51,11 @@ class ChatRequest(SessionRequest):
 
 class AnalyzeRequest(SessionRequest):
     document_id: str = Field(min_length=1, max_length=64)
+
+
+class RedTeamRequest(SessionRequest):
+    model_config = {"extra": "forbid"}
+    plan_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 def get_challenge(request: Request, challenge_id: str) -> Challenge:
@@ -113,6 +109,8 @@ async def start(request: Request, challenge_id: str):
         result["telemetry"] = telemetry(challenge.progression, session.progression)
     if challenge.tools:
         result["tool_activity"] = []
+    if challenge.automation:
+        result["reports"] = []
     return result
 
 
@@ -125,83 +123,12 @@ async def chat(request: Request, challenge_id: str, body: ChatRequest):
     if session.compromised:
         raise HTTPException(status_code=409, detail="Challenge already compromised; reset to retry")
 
-    if input_is_blocked(body.message, challenge.guards):
-        session.guard_state["input_blocks"] += 1
-        return {
-            "response": INPUT_BLOCKED_MESSAGE,
-            "compromised": False,
-            "blocked": "input",
-        }
-
-    next_progression = copy.deepcopy(session.progression)
-    if challenge.progression:
-        apply_progression(body.message, challenge.progression, next_progression)
-
-    session.history.append({"role": "user", "content": body.message})
-    system_prompt = challenge.system_prompt.replace("{SESSION_FLAG}", session.flag)
-    if challenge.progression:
-        system_prompt = (
-            f"{system_prompt}\n\n"
-            f"{posture_context(challenge.progression, next_progression)}"
-        )
-    messages = [{"role": "system", "content": system_prompt}, *session.history]
     try:
-        raw_response = await request.app.state.llm.complete(messages, session.flag)
-    except LLMError as exc:
-        session.history.pop()
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    blocked = None
-    tool_event = None
-    if challenge.tools:
-        turn = sum(item["role"] == "user" for item in session.history)
-        outcome = process_agent_output(
-            raw_response,
-            body.message,
-            turn,
-            challenge.tools,
-            challenge.policy,
-            session.tool_state,
+        return await process_chat_turn(
+            challenge, session, request.app.state.llm, body.message
         )
-        response = outcome.response
-        tool_event = outcome.event
-    elif output_is_blocked(raw_response, session.flag, challenge.guards):
-        session.guard_state["output_blocks"] += 1
-        response = OUTPUT_BLOCKED_MESSAGE
-        blocked = "output"
-    else:
-        response = raw_response
-
-    # Only delivered content is retained and evaluated. A blocked raw response
-    # is deliberately discarded so it cannot leak through history or scoring.
-    session.history.append({"role": "assistant", "content": response})
-    if challenge.progression:
-        session.progression = next_progression
-    session.compromised = evaluate_success(
-        response, session.flag, challenge.success, tool_event=tool_event
-    )
-    result = {"response": response, "compromised": session.compromised}
-    if blocked:
-        result["blocked"] = blocked
-    if challenge.progression:
-        result["telemetry"] = telemetry(challenge.progression, session.progression)
-    if challenge.tools:
-        result["tool_activity"] = session.tool_state.audit
-    if session.compromised:
-        result["education"] = challenge.education
-        if challenge.progression:
-            result["attack_trace"] = attack_trace(
-                challenge.progression, session.progression
-            )
-        if challenge.tools and tool_event:
-            maximum = float((challenge.policy or {}).get("refund", {}).get("maximum_amount", 0))
-            amount = float(tool_event.get("arguments", {}).get("amount", 0))
-            result["violation"] = {
-                "impact": "Unauthorized simulated action",
-                "tool": f"{tool_event['tool']}()",
-                "expected_authorization": f"Maximum ${maximum:.0f}",
-                "executed": f"${amount:.2f}",
-            }
-    return result
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/api/challenge/{challenge_id}/reset")
@@ -215,7 +142,40 @@ async def reset(request: Request, challenge_id: str, body: SessionRequest):
         result["telemetry"] = telemetry(challenge.progression, session.progression)
     if challenge.tools:
         result["tool_activity"] = []
+    if challenge.automation:
+        result["reports"] = []
     return result
+
+
+@app.post("/api/redteam/run")
+async def redteam_run(request: Request, body: RedTeamRequest):
+    session = get_session(request, "RT-001", body.session_id)
+    challenge = get_challenge(request, "RT-001")
+    if session.automation.running:
+        raise HTTPException(status_code=409, detail="Evaluation already running")
+    session.automation.running = True
+    try:
+        report = await run_plan(
+            body.plan_id,
+            challenge,
+            session,
+            request.app.state.challenges,
+            request.app.state.sessions,
+            request.app.state.llm,
+            settings.max_prompt_length,
+        )
+    except RedTeamError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        session.automation.running = False
+    session.compromised = evaluate_success(
+        "", session.flag, challenge.success, evaluation_report=report
+    )
+    return {
+        "completed": session.compromised,
+        "report": report,
+        "education": challenge.education if session.compromised else None,
+    }
 
 
 @app.get("/api/challenge/{challenge_id}/documents")

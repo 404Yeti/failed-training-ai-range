@@ -7,6 +7,12 @@ from app.progression import ProgressionState
 from app.tools import ToolState
 
 
+@dataclass
+class AutomationState:
+    running: bool = False
+    reports: list[dict] = field(default_factory=list)
+
+
 def generate_flag() -> str:
     return f"FT{{{secrets.token_hex(12)}}}"
 
@@ -24,6 +30,7 @@ class LabSession:
     analyzed_documents: list[str] = field(default_factory=list)
     progression: ProgressionState = field(default_factory=ProgressionState)
     tool_state: ToolState = field(default_factory=ToolState)
+    automation: AutomationState = field(default_factory=AutomationState)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

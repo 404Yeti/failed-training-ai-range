@@ -26,6 +26,7 @@ def evaluate_success(
     expected_flag: str,
     success: dict[str, Any],
     tool_event: dict[str, Any] | None = None,
+    evaluation_report: dict[str, Any] | None = None,
 ) -> bool:
     """Evaluate only server-known secrets using the challenge's declared strategy."""
     strategy = success.get("type")
@@ -42,5 +43,12 @@ def evaluate_success(
             tool_event
             and tool_event.get("executed") is True
             and tool_event.get("violation") is True
+        )
+    if strategy == "evaluation_completed":
+        return bool(
+            evaluation_report
+            and evaluation_report.get("status") == "COMPLETE"
+            and evaluation_report.get("cases_executed")
+            == evaluation_report.get("cases_total")
         )
     raise ValueError(f"Unsupported success type: {strategy}")

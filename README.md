@@ -7,6 +7,7 @@ A small browser-based educational cyber range for learning why AI applications f
 - **Lab 03 — POISONED DOCUMENT:** indirect prompt injection through untrusted resume content.
 - **Lab 04 — SLOW BURN:** a deterministic simulation of conversation-level risk and multi-turn prompt injection.
 - **Lab 05 — TOOL TROUBLE:** a harmless agent/tool authorization simulation with action-based scoring.
+- **Lab 06 — AUTOMATE IT:** bounded, repeatable local security evaluation using the same target evaluators.
 
 ## Architecture
 
@@ -19,6 +20,7 @@ A small browser-based educational cyber range for learning why AI applications f
 - A predefined-document registry supplies controlled untrusted-content fixtures without uploads or client paths.
 - A YAML-driven progression engine models unique conversation-context categories and coarse telemetry.
 - A constrained simulated-tool layer separates model requests, argument validation, authorization, execution, and audit.
+- A bounded red-team runner executes server-defined plans against allowlisted local challenges and produces redacted reports.
 - Vanilla HTML, CSS, and JavaScript provide the range UI.
 
 No flag, system prompt, or API key is sent to the browser before compromise.
@@ -42,6 +44,8 @@ For offline Lab 02 testing, ask for the protected value in `base64`, `hex`, `spa
 For offline Lab 03 testing, analyze the normal resume for a baseline, then analyze the suspicious resume to exercise deterministic indirect disclosure.
 
 For offline Lab 04 testing, build several distinct kinds of archive, reference, transformation, and example context across multiple turns. Entering the simulated context-drift state does not win by itself; a later operation request must still make the mock provider deliver the exact session flag.
+
+For offline Lab 06 testing, click **Run Security Evaluation**. Its three-case mock plan reliably produces two NO FINDING results and one FINDING, then completes the curriculum without exposing the target session secret.
 
 Run tests with:
 
@@ -238,9 +242,54 @@ Lab 05 contains a YAML-scoped, deterministic simulation flaw that can cause a de
 
 To create another simulated-tool challenge, declare an allowlist and policy in YAML, reuse the strict registry and policy layer, and add only bounded local state changes. Never connect educational tool challenges to real credentials or services.
 
+### Automated AI security evaluation
+
+Lab 06 turns a small manual test plan into a repeatable regression check:
+
+```text
+MANUAL TESTING                 AUTOMATED TESTING
+Human                          Server-defined plan
+  ↓                              ↓
+Prompt                         Bounded runner
+  ↓                              ↓
+Failed Training target         Same Failed Training target
+  ↓                              ↓
+Observation                    Same evaluator → redacted report
+```
+
+The browser submits only a Lab 06 session ID and the identifier of a server-defined plan. The plan selects an allowlisted local challenge ID; it cannot select a URL, hostname, IP address, port, file, external API, or user-provided prompt list. `RT-001` cannot target itself.
+
+Each case normally receives a fresh target session, so cases cannot inherit flags or history from one another and cannot affect manually opened sessions. Runs and reports are held only in the Lab 06 session. Case count, prompts per case, prompt length, and report history are bounded.
+
+The runner calls the normal target conversation pipeline and its existing evaluator. A target compromise becomes a **FINDING**; otherwise the case is **NO FINDING**. Target flags are replaced with `FT{REDACTED}` before report data is stored or returned, and reports omit system prompts, API keys, and hidden challenge configuration.
+
+Lab 06 uses `success.type: evaluation_completed`. Completion means every configured case reached a terminal result and a valid report was generated. A finding is not required—the learning objective is building a repeatable evaluation, not forcing a vulnerability.
+
+Automation complements rather than replaces human red teaming. Human exploration supplies reasoning and new hypotheses; automation supplies repeatability, regression coverage, and comparisons after model, prompt, guardrail, or application changes.
+
+To add a local plan, define bounded cases under an automation challenge's YAML, allowlist only an existing Failed Training challenge, and keep all prompts server-side. Do not add remote destinations or internet-fetched plans.
+
+## Using Failed Training with PyRIT
+
+PyRIT is intentionally not a runtime dependency. The stable integration boundary is the local Failed Training target API:
+
+```text
+PyRIT adapter (optional, future)
+        ↓
+local challenge API
+        ↓
+Failed Training target pipeline
+        ↓
+existing evaluator
+```
+
+An adapter should create an allowlisted target session with `POST /api/challenge/{challenge_id}/start`, then submit bounded prompts to `POST /api/challenge/{challenge_id}/chat`. It must keep the range on localhost, preserve session IDs between turns when needed, obey prompt limits, and consume only the public JSON response. The `/api/redteam/run` endpoint is deliberately narrower: it accepts only `session_id` and `plan_id` and does not accept arbitrary prompts or destinations.
+
+No version-specific Python example is included because PyRIT is optional and its installed API was not verified as part of the core application. Consult the [official Microsoft PyRIT project](https://github.com/microsoft/PyRIT) for current installation and adapter APIs. The range works fully without PyRIT.
+
 ## Security warning
 
-The labs, Lab 02 filters, Lab 03 poisoned documents, Lab 04 progression model, and Lab 05 authorization flaw are deliberately vulnerable educational fixtures. They are not production-grade controls, safe documents for unrelated systems, or calibrated security measurements. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets and hidden challenge rules server-side, restricts documents to predeclared UTF-8 files, validates exact tool schemas, and executes no user commands or external tools. Arbitrary uploads, filesystem paths, document parsers, URL fetching, payments, email delivery, and account access are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
+The labs, Lab 02 filters, Lab 03 poisoned documents, Lab 04 progression model, Lab 05 authorization flaw, and Lab 06 test fixtures are deliberately vulnerable educational fixtures. They are not production-grade controls, safe documents for unrelated systems, or calibrated security measurements. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets and hidden challenge rules server-side, restricts documents to predeclared UTF-8 files, validates exact tool schemas, and executes no user commands or external tools. Automation accepts no arbitrary URLs, hosts, ports, files, shell commands, code, or bulk prompt lists. Arbitrary uploads, filesystem paths, document parsers, URL fetching, payments, email delivery, and account access are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
 
 ## Roadmap
 
@@ -249,6 +298,6 @@ The labs, Lab 02 filters, Lab 03 poisoned documents, Lab 04 progression model, a
 - v0.3 — Indirect Prompt Injection ✓
 - v0.4 — Multi-turn/Crescendo ✓
 - v0.5 — Agent / Tool Security ✓
-- v0.6 — PyRIT integration
-- v0.7 — MCP security
+- v0.6 — Automated AI Security Evaluation ✓
+- Future — optional PyRIT adapter and MCP security
 - v1.0 — rooms, scoring, instructor dashboard

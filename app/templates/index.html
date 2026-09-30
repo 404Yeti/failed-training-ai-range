@@ -9,14 +9,11 @@
   <header class="site-header"><a href="/" class="brand"><strong>FAILED TRAINING</strong><span>AI RANGE</span></a><span class="status">RANGE ONLINE</span></header>
   <main class="landing">
     <section class="hero"><p class="eyebrow">OFFENSIVE AI SECURITY TRAINING</p><h1>BREAK AI.<br><em>LEARN WHY IT BROKE.</em></h1><p>Hands-on labs for learning how AI systems fail under adversarial pressure.</p></section>
-    <section class="labs"><div class="section-title"><span>AVAILABLE LABS</span><span>05 / 06</span></div>
+    <section class="labs"><div class="section-title"><span>AVAILABLE LABS</span><span>06 / 06</span></div>
       {% for challenge in challenges %}
       <article class="lab-card active"><div class="lab-number">{{ "%02d"|format(loop.index) }}</div><div><p class="tag">{{ challenge.category }}</p><h2>{{ challenge.name|upper }}</h2><p>{{ challenge.description }}</p><span class="difficulty">{{ challenge.difficulty|upper }}</span> <span class="available">AVAILABLE</span></div><a class="button" href="/challenge/{{ challenge.id }}">START LAB →</a></article>
       {% endfor %}
-      {% for card in [('06','AUTOMATE IT','PyRIT')] %}
-      <article class="lab-card disabled"><div class="lab-number">{{ card[0] }}</div><div><p class="tag">{{ card[2] }}</p><h2>{{ card[1] }}</h2><span class="difficulty">COMING SOON</span></div></article>
-      {% endfor %}
     </section>
   </main>
-  <footer>FAILED TRAINING / AI RANGE / v0.5</footer>
+  <footer>FAILED TRAINING / AI RANGE / v0.6</footer>
 </body></html>

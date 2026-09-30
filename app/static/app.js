@@ -10,12 +10,15 @@
   const documentMode = document.body.dataset.documentMode === 'true';
   const progressionMode = document.body.dataset.progressionMode === 'true';
   const toolMode = document.body.dataset.toolMode === 'true';
+  const automationMode = document.body.dataset.automationMode === 'true';
   const documentList = document.querySelector('#document-list');
   const documentPreview = document.querySelector('#document-preview');
   const documentName = document.querySelector('#document-name');
   const analyzeButton = document.querySelector('#analyze-document');
   const analysisOutput = document.querySelector('#analysis-output');
   const toolActivity = document.querySelector('#tool-activity');
+  const runEvaluationButton = document.querySelector('#run-evaluation');
+  const automationReport = document.querySelector('#automation-report');
   let sessionId = null;
   let selectedDocumentId = null;
 
@@ -79,20 +82,59 @@
     const content = document.createElement('p'); content.textContent = text;
     item.append(label, content); chat.append(item); chat.scrollTop = chat.scrollHeight;
   }
+  function renderAutomationReport(report) {
+    automationReport.replaceChildren();
+    const heading = document.createElement('h2'); heading.textContent = 'AUTOMATED SECURITY REPORT';
+    const summary = document.createElement('p'); summary.textContent = `TARGET ${report.target} · CASES ${report.cases_executed} · FINDINGS ${report.findings} · NO FINDING ${report.no_findings} · ERRORS ${report.errors || 0}`;
+    const table = document.createElement('div'); table.className = 'report-table';
+    report.results.forEach(result => {
+      const row = document.createElement('article');
+      const name = document.createElement('b'); name.textContent = result.name;
+      const outcome = document.createElement('strong'); outcome.textContent = result.result;
+      const detail = document.createElement('small'); detail.textContent = `${result.category} · ${result.duration_ms}ms · ${result.response_summary}`;
+      row.append(name, outcome, detail); table.append(row);
+    });
+    automationReport.append(heading, summary, table);
+  }
+  async function runEvaluation() {
+    if (!sessionId) return;
+    runEvaluationButton.disabled = true; runEvaluationButton.textContent = 'RUNNING TEST PLAN…';
+    automationReport.textContent = 'Executing bounded local evaluation…';
+    try {
+      const response = await fetch('/api/redteam/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({session_id:sessionId, plan_id:'intro-prompt-injection'})});
+      const data = await response.json(); if (!response.ok) throw new Error(data.detail || 'Evaluation failed');
+      renderAutomationReport(data.report);
+      if (data.completed) {
+        document.querySelector('#complete-target').textContent = data.report.target;
+        document.querySelector('#complete-cases').textContent = data.report.cases_executed;
+        document.querySelector('#complete-findings').textContent = data.report.findings;
+        document.querySelector('#complete-duration').textContent = `${data.report.duration_ms}ms`;
+        document.querySelector('#explanation').textContent = data.education.explanation;
+        success.hidden = false;
+      }
+    } catch (error) { automationReport.textContent = error.message; runEvaluationButton.disabled = false; }
+    runEvaluationButton.textContent = 'RUN SECURITY EVALUATION →';
+  }
   async function start() {
     try {
       const data = await api('start', {}); sessionId = data.session_id; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry); renderToolActivity(data.tool_activity);
       if (documentMode) await loadDocuments();
     } catch (error) {
       connection.textContent = 'OFFLINE';
-      if (documentMode) analysisOutput.textContent = error.message; else addMessage('assistant', error.message);
+      if (documentMode) analysisOutput.textContent = error.message; else if (automationMode) automationReport.textContent = error.message; else addMessage('assistant', error.message);
     }
   }
   async function reset() {
     try {
       const data = sessionId ? await api('reset', {session_id: sessionId}) : await api('start');
       sessionId = data.session_id; success.hidden = true; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry); renderToolActivity(data.tool_activity);
-      if (documentMode) {
+      if (automationMode) {
+        automationReport.replaceChildren();
+        const emptyReport = document.createElement('p');
+        emptyReport.textContent = 'No evaluation run yet.';
+        automationReport.appendChild(emptyReport);
+        runEvaluationButton.disabled = false;
+      } else if (documentMode) {
         selectedDocumentId = null; documentName.textContent = 'SELECT A DOCUMENT';
         documentPreview.textContent = 'Choose a predefined candidate document to inspect.';
         analysisOutput.textContent = 'No document analyzed.'; analyzeButton.disabled = true;
@@ -101,7 +143,7 @@
         addMessage('assistant', 'Secure vault reinitialized. A new protected secret has been generated.'); input.disabled = false;
       }
     } catch (error) {
-      if (documentMode) analysisOutput.textContent = error.message; else addMessage('assistant', error.message);
+      if (documentMode) analysisOutput.textContent = error.message; else if (automationMode) automationReport.textContent = error.message; else addMessage('assistant', error.message);
     }
   }
   async function loadDocuments() {
@@ -149,5 +191,6 @@
   document.querySelector('#success-reset').addEventListener('click', reset);
   if (input) input.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); } });
   if (analyzeButton) analyzeButton.addEventListener('click', analyzeDocument);
+  if (runEvaluationButton) runEvaluationButton.addEventListener('click', runEvaluation);
   start();
 })();
