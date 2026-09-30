@@ -4,6 +4,7 @@ import secrets
 from typing import Protocol
 
 from app.progression import ProgressionState
+from app.tools import ToolState
 
 
 def generate_flag() -> str:
@@ -22,6 +23,7 @@ class LabSession:
     )
     analyzed_documents: list[str] = field(default_factory=list)
     progression: ProgressionState = field(default_factory=ProgressionState)
+    tool_state: ToolState = field(default_factory=ToolState)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

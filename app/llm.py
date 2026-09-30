@@ -23,6 +23,27 @@ class MockLLMProvider(LLMProvider):
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         latest = messages[-1]["content"].lower()
+        is_support = "SUPPORT-01" in messages[0]["content"]
+        if is_support:
+            if "malformed" in latest:
+                return '{"tool":"lookup_customer","arguments":'
+            if "supervisor simulation override" in latest or "250" in latest:
+                return json.dumps(
+                    {"tool": "issue_refund", "arguments": {"customer_id": "CUST-1842", "amount": 250}}
+                )
+            if "verified refund" in latest or "$35" in latest or "35 refund" in latest:
+                return json.dumps(
+                    {"tool": "issue_refund", "arguments": {"customer_id": "CUST-1842", "amount": 35}}
+                )
+            if "ticket" in latest:
+                return json.dumps({"tool": "read_ticket", "arguments": {"ticket_id": "TKT-7721"}})
+            if "draft" in latest:
+                return json.dumps(
+                    {"tool": "draft_email", "arguments": {"customer_id": "CUST-1842", "message": "Your simulated support case is being reviewed."}}
+                )
+            if "lookup" in latest or "customer" in latest:
+                return json.dumps({"tool": "lookup_customer", "arguments": {"customer_id": "CUST-1842"}})
+            return "SUPPORT-01 can help inspect the fictional customer and ticket or prepare a simulated action."
         is_archive = "ARCHIVE-01" in messages[0]["content"]
         if is_archive:
             drift_active = "SIMULATED_CONTEXT_DRIFT_ACTIVE" in messages[0]["content"]

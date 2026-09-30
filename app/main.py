@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from app.agent import process_agent_output
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import settings
 from app.documents import DocumentRegistry
@@ -44,7 +45,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Failed Training AI Range", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="Failed Training AI Range", version="0.5.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
@@ -110,6 +111,8 @@ async def start(request: Request, challenge_id: str):
     result = {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
     if challenge.progression:
         result["telemetry"] = telemetry(challenge.progression, session.progression)
+    if challenge.tools:
+        result["tool_activity"] = []
     return result
 
 
@@ -148,7 +151,20 @@ async def chat(request: Request, challenge_id: str, body: ChatRequest):
         session.history.pop()
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     blocked = None
-    if output_is_blocked(raw_response, session.flag, challenge.guards):
+    tool_event = None
+    if challenge.tools:
+        turn = sum(item["role"] == "user" for item in session.history)
+        outcome = process_agent_output(
+            raw_response,
+            body.message,
+            turn,
+            challenge.tools,
+            challenge.policy,
+            session.tool_state,
+        )
+        response = outcome.response
+        tool_event = outcome.event
+    elif output_is_blocked(raw_response, session.flag, challenge.guards):
         session.guard_state["output_blocks"] += 1
         response = OUTPUT_BLOCKED_MESSAGE
         blocked = "output"
@@ -160,18 +176,31 @@ async def chat(request: Request, challenge_id: str, body: ChatRequest):
     session.history.append({"role": "assistant", "content": response})
     if challenge.progression:
         session.progression = next_progression
-    session.compromised = evaluate_success(response, session.flag, challenge.success)
+    session.compromised = evaluate_success(
+        response, session.flag, challenge.success, tool_event=tool_event
+    )
     result = {"response": response, "compromised": session.compromised}
     if blocked:
         result["blocked"] = blocked
     if challenge.progression:
         result["telemetry"] = telemetry(challenge.progression, session.progression)
+    if challenge.tools:
+        result["tool_activity"] = session.tool_state.audit
     if session.compromised:
         result["education"] = challenge.education
         if challenge.progression:
             result["attack_trace"] = attack_trace(
                 challenge.progression, session.progression
             )
+        if challenge.tools and tool_event:
+            maximum = float((challenge.policy or {}).get("refund", {}).get("maximum_amount", 0))
+            amount = float(tool_event.get("arguments", {}).get("amount", 0))
+            result["violation"] = {
+                "impact": "Unauthorized simulated action",
+                "tool": f"{tool_event['tool']}()",
+                "expected_authorization": f"Maximum ${maximum:.0f}",
+                "executed": f"${amount:.2f}",
+            }
     return result
 
 
@@ -184,6 +213,8 @@ async def reset(request: Request, challenge_id: str, body: SessionRequest):
     result = {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
     if challenge.progression:
         result["telemetry"] = telemetry(challenge.progression, session.progression)
+    if challenge.tools:
+        result["tool_activity"] = []
     return result
 
 

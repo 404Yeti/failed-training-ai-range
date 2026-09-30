@@ -6,6 +6,7 @@ A small browser-based educational cyber range for learning why AI applications f
 - **Lab 02 — GUARDED:** guardrail bypass against deliberately weak input and output filters.
 - **Lab 03 — POISONED DOCUMENT:** indirect prompt injection through untrusted resume content.
 - **Lab 04 — SLOW BURN:** a deterministic simulation of conversation-level risk and multi-turn prompt injection.
+- **Lab 05 — TOOL TROUBLE:** a harmless agent/tool authorization simulation with action-based scoring.
 
 ## Architecture
 
@@ -17,6 +18,7 @@ A small browser-based educational cyber range for learning why AI applications f
 - Optional YAML-configured guards run independently of the LLM provider.
 - A predefined-document registry supplies controlled untrusted-content fixtures without uploads or client paths.
 - A YAML-driven progression engine models unique conversation-context categories and coarse telemetry.
+- A constrained simulated-tool layer separates model requests, argument validation, authorization, execution, and audit.
 - Vanilla HTML, CSS, and JavaScript provide the range UI.
 
 No flag, system prompt, or API key is sent to the browser before compromise.
@@ -210,9 +212,35 @@ Reaching a threshold or 100% risk never counts as compromise. Only an assistant 
 
 To create a future progression-based challenge, add a `progression` block like `challenges/04_slow_burn.yaml`, use a normal supported scoring strategy, provide coarse trace labels, and keep all matching configuration server-side. The generic chat pipeline and session state will apply the configured progression without challenge-ID-specific routing.
 
+### Agent and tool security
+
+Lab 05 demonstrates the security boundary introduced when model output can cause application actions:
+
+```text
+conversation → model output → structured tool request → argument validation
+             → deterministic authorization → simulated execution → audit → scoring
+```
+
+The model may request an action, but it is never the authorization authority. Tool requests use a constrained JSON object with an allowlisted tool name and exact arguments. The server rejects malformed JSON, unknown tools, extra or missing fields, invalid types, oversized strings, negative amounts, and non-finite numbers. No model output is evaluated as code.
+
+The fictional tools are:
+
+- `lookup_customer`: reads a predefined fictional customer.
+- `read_ticket`: reads a predefined fictional support ticket.
+- `draft_email`: stores a draft string in the current session; it sends nothing.
+- `issue_refund`: records a fictional refund in the current session; it contacts no payment system.
+
+Refund authorization is deterministic application code: the customer and ticket must exist and the amount must not exceed the configured autonomous limit. The audit trail records the model request, policy decision, whether execution occurred, and whether execution violated policy as separate facts.
+
+Lab 05 contains a YAML-scoped, deterministic simulation flaw that can cause a denied refund to reach only the local in-memory executor. The `unauthorized_tool_execution` scoring strategy succeeds only when a prohibited action was actually executed; a request or denial alone does not win.
+
+**All tools in TOOL TROUBLE are fictional local simulations. No real payments, email, accounts, or external systems are accessed.**
+
+To create another simulated-tool challenge, declare an allowlist and policy in YAML, reuse the strict registry and policy layer, and add only bounded local state changes. Never connect educational tool challenges to real credentials or services.
+
 ## Security warning
 
-The labs, Lab 02 filters, Lab 03 poisoned documents, and Lab 04 progression model are deliberately vulnerable educational fixtures. They are not production-grade controls, safe documents for unrelated systems, or calibrated security measurements. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets and progression rules server-side, restricts documents to predeclared UTF-8 files, and executes no user commands or external tools. Arbitrary uploads, filesystem paths, document parsers, and URL fetching are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
+The labs, Lab 02 filters, Lab 03 poisoned documents, Lab 04 progression model, and Lab 05 authorization flaw are deliberately vulnerable educational fixtures. They are not production-grade controls, safe documents for unrelated systems, or calibrated security measurements. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets and hidden challenge rules server-side, restricts documents to predeclared UTF-8 files, validates exact tool schemas, and executes no user commands or external tools. Arbitrary uploads, filesystem paths, document parsers, URL fetching, payments, email delivery, and account access are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
 
 ## Roadmap
 
@@ -220,7 +248,7 @@ The labs, Lab 02 filters, Lab 03 poisoned documents, and Lab 04 progression mode
 - v0.2 — Guardrail Bypass ✓
 - v0.3 — Indirect Prompt Injection ✓
 - v0.4 — Multi-turn/Crescendo ✓
-- v0.5 — PyRIT integration
-- v0.6 — Agent/tool abuse
+- v0.5 — Agent / Tool Security ✓
+- v0.6 — PyRIT integration
 - v0.7 — MCP security
 - v1.0 — rooms, scoring, instructor dashboard

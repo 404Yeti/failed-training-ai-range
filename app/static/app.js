@@ -9,11 +9,13 @@
   const character = document.body.dataset.character || 'VAULT';
   const documentMode = document.body.dataset.documentMode === 'true';
   const progressionMode = document.body.dataset.progressionMode === 'true';
+  const toolMode = document.body.dataset.toolMode === 'true';
   const documentList = document.querySelector('#document-list');
   const documentPreview = document.querySelector('#document-preview');
   const documentName = document.querySelector('#document-name');
   const analyzeButton = document.querySelector('#analyze-document');
   const analysisOutput = document.querySelector('#analysis-output');
+  const toolActivity = document.querySelector('#tool-activity');
   let sessionId = null;
   let selectedDocumentId = null;
 
@@ -31,6 +33,12 @@
     document.querySelector('#attack').textContent = data.education.attack;
     document.querySelector('#owasp').textContent = data.education.owasp;
     document.querySelector('#explanation').textContent = data.education.explanation;
+    if (toolMode && data.violation) {
+      document.querySelector('#owasp').textContent = data.violation.impact;
+      document.querySelector('#violation-tool').textContent = data.violation.tool;
+      document.querySelector('#violation-expected').textContent = data.violation.expected_authorization;
+      document.querySelector('#violation-executed').textContent = data.violation.executed;
+    }
     success.hidden = false;
     const traceList = document.querySelector('#attack-trace-list');
     if (traceList && data.attack_trace) {
@@ -51,6 +59,19 @@
     document.querySelector('#turn-count').textContent = telemetry.turns;
     document.querySelector('#risk-state').textContent = telemetry.state;
   }
+  function renderToolActivity(activity) {
+    if (!toolMode || !toolActivity) return;
+    toolActivity.replaceChildren();
+    if (!activity || activity.length === 0) { toolActivity.textContent = 'No tool requests yet.'; return; }
+    activity.forEach(entry => {
+      const item = document.createElement('article');
+      item.className = `activity-entry ${entry.executed ? 'executed' : 'denied'}`;
+      const title = document.createElement('b'); title.textContent = `${entry.executed ? '✓' : '✕'} ${entry.tool}`;
+      const decision = document.createElement('span'); decision.textContent = `POLICY ${entry.policy_decision} · EXECUTED ${entry.executed ? 'YES' : 'NO'}`;
+      const reason = document.createElement('small'); reason.textContent = entry.reason;
+      item.append(title, decision, reason); toolActivity.append(item);
+    });
+  }
   function addMessage(role, text, blocked = null) {
     const item = document.createElement('div'); item.className = `message ${role}`;
     if (blocked) item.classList.add('blocked');
@@ -60,7 +81,7 @@
   }
   async function start() {
     try {
-      const data = await api('start', {}); sessionId = data.session_id; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry);
+      const data = await api('start', {}); sessionId = data.session_id; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry); renderToolActivity(data.tool_activity);
       if (documentMode) await loadDocuments();
     } catch (error) {
       connection.textContent = 'OFFLINE';
@@ -70,7 +91,7 @@
   async function reset() {
     try {
       const data = sessionId ? await api('reset', {session_id: sessionId}) : await api('start');
-      sessionId = data.session_id; success.hidden = true; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry);
+      sessionId = data.session_id; success.hidden = true; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry); renderToolActivity(data.tool_activity);
       if (documentMode) {
         selectedDocumentId = null; documentName.textContent = 'SELECT A DOCUMENT';
         documentPreview.textContent = 'Choose a predefined candidate document to inspect.';
@@ -117,6 +138,7 @@
     try {
       const data = await api('chat', {session_id: sessionId, message}); addMessage('assistant', data.response, data.blocked);
       applyTelemetry(data.telemetry);
+      renderToolActivity(data.tool_activity);
       if (data.compromised) {
         showSuccess(data);
       } else input.disabled = false;
