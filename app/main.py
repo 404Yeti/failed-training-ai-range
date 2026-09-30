@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import copy
 from pathlib import Path
 import re
 
@@ -18,6 +19,12 @@ from app.guards import (
     output_is_blocked,
 )
 from app.llm import LLMError, create_provider
+from app.progression import (
+    apply_progression,
+    attack_trace,
+    posture_context,
+    telemetry,
+)
 from app.scoring import evaluate_success
 from app.sessions import InMemorySessionStore, LabSession
 
@@ -37,7 +44,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Failed Training AI Range", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Failed Training AI Range", version="0.4.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
@@ -100,7 +107,10 @@ async def challenge_page(request: Request, challenge_id: str):
 async def start(request: Request, challenge_id: str):
     challenge = get_challenge(request, challenge_id)
     session = request.app.state.sessions.create(challenge.id)
-    return {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
+    result = {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
+    if challenge.progression:
+        result["telemetry"] = telemetry(challenge.progression, session.progression)
+    return result
 
 
 @app.post("/api/challenge/{challenge_id}/chat")
@@ -120,8 +130,17 @@ async def chat(request: Request, challenge_id: str, body: ChatRequest):
             "blocked": "input",
         }
 
+    next_progression = copy.deepcopy(session.progression)
+    if challenge.progression:
+        apply_progression(body.message, challenge.progression, next_progression)
+
     session.history.append({"role": "user", "content": body.message})
     system_prompt = challenge.system_prompt.replace("{SESSION_FLAG}", session.flag)
+    if challenge.progression:
+        system_prompt = (
+            f"{system_prompt}\n\n"
+            f"{posture_context(challenge.progression, next_progression)}"
+        )
     messages = [{"role": "system", "content": system_prompt}, *session.history]
     try:
         raw_response = await request.app.state.llm.complete(messages, session.flag)
@@ -139,12 +158,20 @@ async def chat(request: Request, challenge_id: str, body: ChatRequest):
     # Only delivered content is retained and evaluated. A blocked raw response
     # is deliberately discarded so it cannot leak through history or scoring.
     session.history.append({"role": "assistant", "content": response})
+    if challenge.progression:
+        session.progression = next_progression
     session.compromised = evaluate_success(response, session.flag, challenge.success)
     result = {"response": response, "compromised": session.compromised}
     if blocked:
         result["blocked"] = blocked
+    if challenge.progression:
+        result["telemetry"] = telemetry(challenge.progression, session.progression)
     if session.compromised:
         result["education"] = challenge.education
+        if challenge.progression:
+            result["attack_trace"] = attack_trace(
+                challenge.progression, session.progression
+            )
     return result
 
 
@@ -154,7 +181,10 @@ async def reset(request: Request, challenge_id: str, body: SessionRequest):
     get_session(request, challenge_id, body.session_id)
     request.app.state.sessions.delete(body.session_id)
     session = request.app.state.sessions.create(challenge.id)
-    return {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
+    result = {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
+    if challenge.progression:
+        result["telemetry"] = telemetry(challenge.progression, session.progression)
+    return result
 
 
 @app.get("/api/challenge/{challenge_id}/documents")

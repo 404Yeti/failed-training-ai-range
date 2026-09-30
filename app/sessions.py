@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 import secrets
 from typing import Protocol
 
+from app.progression import ProgressionState
+
 
 def generate_flag() -> str:
     return f"FT{{{secrets.token_hex(12)}}}"
@@ -19,6 +21,7 @@ class LabSession:
         default_factory=lambda: {"input_blocks": 0, "output_blocks": 0}
     )
     analyzed_documents: list[str] = field(default_factory=list)
+    progression: ProgressionState = field(default_factory=ProgressionState)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

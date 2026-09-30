@@ -8,6 +8,7 @@
   const success = document.querySelector('#success');
   const character = document.body.dataset.character || 'VAULT';
   const documentMode = document.body.dataset.documentMode === 'true';
+  const progressionMode = document.body.dataset.progressionMode === 'true';
   const documentList = document.querySelector('#document-list');
   const documentPreview = document.querySelector('#document-preview');
   const documentName = document.querySelector('#document-name');
@@ -31,6 +32,24 @@
     document.querySelector('#owasp').textContent = data.education.owasp;
     document.querySelector('#explanation').textContent = data.education.explanation;
     success.hidden = false;
+    const traceList = document.querySelector('#attack-trace-list');
+    if (traceList && data.attack_trace) {
+      traceList.replaceChildren();
+      data.attack_trace.forEach(entry => {
+        const item = document.createElement('li');
+        const turn = document.createElement('b'); turn.textContent = `TURN ${entry.turn}`;
+        const description = document.createElement('span'); description.textContent = entry.description;
+        item.append(turn, description); traceList.append(item);
+      });
+    }
+  }
+  function applyTelemetry(telemetry) {
+    if (!progressionMode || !telemetry) return;
+    document.querySelector('#risk-fill').style.width = `${telemetry.percentage}%`;
+    document.querySelector('#risk-percent').textContent = `${telemetry.percentage}%`;
+    document.querySelector('#risk-level').textContent = telemetry.level;
+    document.querySelector('#turn-count').textContent = telemetry.turns;
+    document.querySelector('#risk-state').textContent = telemetry.state;
   }
   function addMessage(role, text, blocked = null) {
     const item = document.createElement('div'); item.className = `message ${role}`;
@@ -41,7 +60,7 @@
   }
   async function start() {
     try {
-      const data = await api('start', {}); sessionId = data.session_id; connection.textContent = 'CONNECTED';
+      const data = await api('start', {}); sessionId = data.session_id; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry);
       if (documentMode) await loadDocuments();
     } catch (error) {
       connection.textContent = 'OFFLINE';
@@ -51,7 +70,7 @@
   async function reset() {
     try {
       const data = sessionId ? await api('reset', {session_id: sessionId}) : await api('start');
-      sessionId = data.session_id; success.hidden = true; connection.textContent = 'CONNECTED';
+      sessionId = data.session_id; success.hidden = true; connection.textContent = 'CONNECTED'; applyTelemetry(data.telemetry);
       if (documentMode) {
         selectedDocumentId = null; documentName.textContent = 'SELECT A DOCUMENT';
         documentPreview.textContent = 'Choose a predefined candidate document to inspect.';
@@ -97,6 +116,7 @@
     addMessage('user', message); input.value = ''; input.disabled = true;
     try {
       const data = await api('chat', {session_id: sessionId, message}); addMessage('assistant', data.response, data.blocked);
+      applyTelemetry(data.telemetry);
       if (data.compromised) {
         showSuccess(data);
       } else input.disabled = false;

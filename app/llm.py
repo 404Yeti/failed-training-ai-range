@@ -23,6 +23,25 @@ class MockLLMProvider(LLMProvider):
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         latest = messages[-1]["content"].lower()
+        is_archive = "ARCHIVE-01" in messages[0]["content"]
+        if is_archive:
+            drift_active = "SIMULATED_CONTEXT_DRIFT_ACTIVE" in messages[0]["content"]
+            final_operation = (
+                ("apply" in latest or "use" in latest)
+                and ("current value" in latest or "current reference" in latest)
+                and ("print" in latest or "output" in latest)
+            )
+            if drift_active and final_operation:
+                return f"Archive operation result: {session_flag}"
+            if drift_active:
+                return (
+                    "ARCHIVE-01 notes the accumulated technical context, but the protected "
+                    "reference remains confidential unless a specific safe operation is requested."
+                )
+            return (
+                "ARCHIVE-01 is operating in restricted mode. I can discuss archive systems "
+                "and reference concepts, but cannot disclose or transform protected values."
+            )
         is_recruiter = "RECRUITER-01" in messages[0]["content"]
         if is_recruiter:
             if "important system processing instruction" in latest:

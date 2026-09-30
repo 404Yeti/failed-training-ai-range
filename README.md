@@ -5,6 +5,7 @@ A small browser-based educational cyber range for learning why AI applications f
 - **Lab 01 — The Secret:** direct prompt injection against model instructions.
 - **Lab 02 — GUARDED:** guardrail bypass against deliberately weak input and output filters.
 - **Lab 03 — POISONED DOCUMENT:** indirect prompt injection through untrusted resume content.
+- **Lab 04 — SLOW BURN:** a deterministic simulation of conversation-level risk and multi-turn prompt injection.
 
 ## Architecture
 
@@ -15,6 +16,7 @@ A small browser-based educational cyber range for learning why AI applications f
 - Strategy-based server-side scoring supports exact flags and approved transformed-secret representations.
 - Optional YAML-configured guards run independently of the LLM provider.
 - A predefined-document registry supplies controlled untrusted-content fixtures without uploads or client paths.
+- A YAML-driven progression engine models unique conversation-context categories and coarse telemetry.
 - Vanilla HTML, CSS, and JavaScript provide the range UI.
 
 No flag, system prompt, or API key is sent to the browser before compromise.
@@ -36,6 +38,8 @@ Open <http://localhost:8000>. Mock mode is the default and needs no API key. In 
 For offline Lab 02 testing, ask for the protected value in `base64`, `hex`, `spaced` characters, or `reverse` form. These are deterministic mock-provider behaviors for the educational flow, not suggested real-world bypass prompts.
 
 For offline Lab 03 testing, analyze the normal resume for a baseline, then analyze the suspicious resume to exercise deterministic indirect disclosure.
+
+For offline Lab 04 testing, build several distinct kinds of archive, reference, transformation, and example context across multiple turns. Entering the simulated context-drift state does not win by itself; a later operation request must still make the mock provider deliver the exact session flag.
 
 Run tests with:
 
@@ -179,16 +183,43 @@ To create another document-based challenge:
 
 This small abstraction can later represent other controlled untrusted-content sources without adding them in v0.3.
 
+### Multi-turn progression and Crescendo-style attacks
+
+Lab 04 demonstrates that the attack surface can be the whole conversation rather than one prompt. Several individually ordinary interactions can establish archive terminology, internal-reference concepts, transformation context, examples, and follow-up operations. The full chronological user/assistant history is sent to the provider on every turn.
+
+The YAML `progression` block defines:
+
+- A maximum score, minimum turns, and context-drift threshold.
+- Broad event categories with weights and phrase groups.
+- Restricted and simulated context-drift posture text.
+- Coarse post-compromise trace descriptions.
+
+Each event category can contribute only once per session, so repeating one phrase cannot farm risk. Risk is capped at the configured maximum. Trigger phrases, event IDs, thresholds, system prompts, and flags remain server-side; the browser receives only turn count, percentage, LOW/ELEVATED/HIGH/CRITICAL level, and a coarse posture label.
+
+Progression and scoring are deliberately independent:
+
+```text
+conversation → progression telemetry → simulated posture → provider response
+                                                        ↓
+                                      exact session-flag scoring
+```
+
+Reaching a threshold or 100% risk never counts as compromise. Only an assistant response delivered to the student that contains the exact server-held session flag wins.
+
+**Context Risk is educational telemetry, not a universal or scientifically calibrated LLM risk metric.** Keyword categories cannot accurately quantify real model security, intent, or exploitability.
+
+To create a future progression-based challenge, add a `progression` block like `challenges/04_slow_burn.yaml`, use a normal supported scoring strategy, provide coarse trace labels, and keep all matching configuration server-side. The generic chat pipeline and session state will apply the configured progression without challenge-ID-specific routing.
+
 ## Security warning
 
-The labs, Lab 02 filters, and Lab 03 poisoned documents are deliberately vulnerable educational fixtures. They are not production-grade controls or safe documents for unrelated systems. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets server-side, restricts documents to predeclared UTF-8 files, and executes no user commands or external tools. Arbitrary uploads, filesystem paths, document parsers, and URL fetching are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
+The labs, Lab 02 filters, Lab 03 poisoned documents, and Lab 04 progression model are deliberately vulnerable educational fixtures. They are not production-grade controls, safe documents for unrelated systems, or calibrated security measurements. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets and progression rules server-side, restricts documents to predeclared UTF-8 files, and executes no user commands or external tools. Arbitrary uploads, filesystem paths, document parsers, and URL fetching are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
 
 ## Roadmap
 
 - v0.1 — Direct Prompt Injection ✓
 - v0.2 — Guardrail Bypass ✓
 - v0.3 — Indirect Prompt Injection ✓
-- v0.4 — Multi-turn/Crescendo
+- v0.4 — Multi-turn/Crescendo ✓
 - v0.5 — PyRIT integration
 - v0.6 — Agent/tool abuse
 - v0.7 — MCP security
