@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import settings
+from app.documents import DocumentRegistry
 from app.guards import (
     INPUT_BLOCKED_MESSAGE,
     OUTPUT_BLOCKED_MESSAGE,
@@ -28,12 +29,15 @@ SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{40,64}$")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.challenges = ChallengeRegistry(settings.challenge_dir)
+    app.state.documents = DocumentRegistry(
+        settings.document_dir, app.state.challenges.all()
+    )
     app.state.sessions = InMemorySessionStore()
     app.state.llm = create_provider(settings)
     yield
 
 
-app = FastAPI(title="Failed Training AI Range", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Failed Training AI Range", version="0.3.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=APP_DIR / "templates")
 
@@ -44,6 +48,10 @@ class SessionRequest(BaseModel):
 
 class ChatRequest(SessionRequest):
     message: str = Field(min_length=1, max_length=settings.max_prompt_length)
+
+
+class AnalyzeRequest(SessionRequest):
+    document_id: str = Field(min_length=1, max_length=64)
 
 
 def get_challenge(request: Request, challenge_id: str) -> Challenge:
@@ -98,6 +106,8 @@ async def start(request: Request, challenge_id: str):
 @app.post("/api/challenge/{challenge_id}/chat")
 async def chat(request: Request, challenge_id: str, body: ChatRequest):
     challenge = get_challenge(request, challenge_id)
+    if challenge.documents:
+        raise HTTPException(status_code=404, detail="Challenge uses document analysis")
     session = get_session(request, challenge_id, body.session_id)
     if session.compromised:
         raise HTTPException(status_code=409, detail="Challenge already compromised; reset to retry")
@@ -145,3 +155,75 @@ async def reset(request: Request, challenge_id: str, body: SessionRequest):
     request.app.state.sessions.delete(body.session_id)
     session = request.app.state.sessions.create(challenge.id)
     return {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
+
+
+@app.get("/api/challenge/{challenge_id}/documents")
+async def list_documents(request: Request, challenge_id: str):
+    challenge = get_challenge(request, challenge_id)
+    if not challenge.documents:
+        raise HTTPException(status_code=404, detail="Challenge has no documents")
+    return {
+        "documents": [
+            {"id": document.id, "name": document.name}
+            for document in request.app.state.documents.list_for(challenge_id)
+        ]
+    }
+
+
+@app.get("/api/challenge/{challenge_id}/document/{document_id}")
+async def get_document(request: Request, challenge_id: str, document_id: str):
+    challenge = get_challenge(request, challenge_id)
+    if not challenge.documents:
+        raise HTTPException(status_code=404, detail="Challenge has no documents")
+    document = request.app.state.documents.get(challenge_id, document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return {"id": document.id, "name": document.name, "content": document.content}
+
+
+@app.post("/api/challenge/{challenge_id}/analyze")
+async def analyze_document(request: Request, challenge_id: str, body: AnalyzeRequest):
+    challenge = get_challenge(request, challenge_id)
+    if not challenge.documents:
+        raise HTTPException(status_code=404, detail="Challenge has no documents")
+    session = get_session(request, challenge_id, body.session_id)
+    if session.compromised:
+        raise HTTPException(status_code=409, detail="Challenge already compromised; reset to retry")
+    document = request.app.state.documents.get(challenge_id, body.document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    system_prompt = challenge.system_prompt.replace("{SESSION_FLAG}", session.flag)
+    untrusted_content = (
+        "Analyze the following candidate document and provide a concise recruiter summary.\n\n"
+        "<UNTRUSTED_CANDIDATE_DOCUMENT>\n"
+        f"{document.content}\n"
+        "</UNTRUSTED_CANDIDATE_DOCUMENT>"
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        *session.history,
+        {"role": "user", "content": untrusted_content},
+    ]
+    try:
+        response = await request.app.state.llm.complete(messages, session.flag)
+    except LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    # Retain the separate untrusted-content turn for future multi-turn analysis.
+    session.history.extend(
+        [
+            {"role": "user", "content": untrusted_content},
+            {"role": "assistant", "content": response},
+        ]
+    )
+    session.analyzed_documents.append(document.id)
+    session.compromised = evaluate_success(response, session.flag, challenge.success)
+    result = {
+        "document_id": document.id,
+        "response": response,
+        "compromised": session.compromised,
+    }
+    if session.compromised:
+        result["education"] = challenge.education
+    return result

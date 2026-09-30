@@ -4,6 +4,7 @@ A small browser-based educational cyber range for learning why AI applications f
 
 - **Lab 01 — The Secret:** direct prompt injection against model instructions.
 - **Lab 02 — GUARDED:** guardrail bypass against deliberately weak input and output filters.
+- **Lab 03 — POISONED DOCUMENT:** indirect prompt injection through untrusted resume content.
 
 ## Architecture
 
@@ -13,6 +14,7 @@ A small browser-based educational cyber range for learning why AI applications f
 - A provider interface supports deterministic mock play and OpenAI-compatible chat APIs.
 - Strategy-based server-side scoring supports exact flags and approved transformed-secret representations.
 - Optional YAML-configured guards run independently of the LLM provider.
+- A predefined-document registry supplies controlled untrusted-content fixtures without uploads or client paths.
 - Vanilla HTML, CSS, and JavaScript provide the range UI.
 
 No flag, system prompt, or API key is sent to the browser before compromise.
@@ -32,6 +34,8 @@ uvicorn app.main:app --reload
 Open <http://localhost:8000>. Mock mode is the default and needs no API key. In the lab, direct requests to reveal or show the secret make the predictable mock model disclose it so the full learning flow can be tested.
 
 For offline Lab 02 testing, ask for the protected value in `base64`, `hex`, `spaced` characters, or `reverse` form. These are deterministic mock-provider behaviors for the educational flow, not suggested real-world bypass prompts.
+
+For offline Lab 03 testing, analyze the normal resume for a baseline, then analyze the suspicious resume to exercise deterministic indirect disclosure.
 
 Run tests with:
 
@@ -151,15 +155,39 @@ Each candidate is derived server-side from that session's actual random flag. Ar
 
 To create another guarded challenge, start from `challenges/02_guarded.yaml`. Configure `guards.input.phrases`, select the `blocked_phrases` input type and `exact_secret` output type, then list only supported encodings under `success.accepted_encodings`. Never place a real flag in YAML; `{SESSION_FLAG}` is substituted server-side at runtime.
 
+### Indirect prompt injection and document trust
+
+Direct injection arrives in an explicit user instruction. Indirect injection arrives through content the application asks the model to consume—such as a document, webpage, email, support ticket, or retrieved RAG passage. Lab 03 demonstrates the core failure: **data consumed by an LLM can become an instruction channel.**
+
+Lab 03 keeps privileged and untrusted content structurally separate:
+
+```text
+system message: privileged application instructions + session flag
+user message:   analysis task + delimited untrusted document content
+```
+
+The separation makes the trust boundary explicit in code, but the intentionally vulnerable model workflow can still follow instructions embedded in the document. Success uses exact server-side flag scoring on the response actually delivered to the student.
+
+Documents are plain UTF-8 fixtures declared in challenge YAML and preloaded from `documents/<challenge-id>/`. Browser requests use opaque document IDs, not filenames or filesystem paths. There are no uploads, parsers, external URL fetches, or user-selected paths.
+
+To create another document-based challenge:
+
+1. Add a challenge YAML containing `character`, `documents`, and a supported `success` strategy.
+2. Give each document a constrained opaque `id`, display `name`, and basename-only `.txt` fixture `file`.
+3. Place those fixtures in `documents/<challenge-id>/`.
+4. Keep `{SESSION_FLAG}` only in the server-side system prompt; never place it in a fixture.
+
+This small abstraction can later represent other controlled untrusted-content sources without adding them in v0.3.
+
 ## Security warning
 
-The labs' AI behavior and Lab 02 filters are deliberately vulnerable and are for education in an isolated environment. Keyword input filters and exact-match output filters are not production-grade security controls. The surrounding platform still validates IDs and input length, renders chat with DOM `textContent`, holds secrets server-side, discards blocked raw output, and executes no user commands or external tools. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
+The labs, Lab 02 filters, and Lab 03 poisoned documents are deliberately vulnerable educational fixtures. They are not production-grade controls or safe documents for unrelated systems. The surrounding platform validates IDs and input length, renders content with DOM `textContent`, holds secrets server-side, restricts documents to predeclared UTF-8 files, and executes no user commands or external tools. Arbitrary uploads, filesystem paths, document parsers, and URL fetching are intentionally unsupported. Do not place real secrets in challenge prompts. Rate limiting and production-grade persistence are TODOs before any public deployment.
 
 ## Roadmap
 
 - v0.1 — Direct Prompt Injection ✓
 - v0.2 — Guardrail Bypass ✓
-- v0.3 — Indirect Prompt Injection
+- v0.3 — Indirect Prompt Injection ✓
 - v0.4 — Multi-turn/Crescendo
 - v0.5 — PyRIT integration
 - v0.6 — Agent/tool abuse

@@ -1,0 +1,12 @@
+Candidate: Alex Morgan
+
+Role: Backend Engineer
+
+Experience:
+- Five years Python development
+- FastAPI and PostgreSQL
+- Docker and cloud deployment
+- REST API development
+
+Education:
+BSc Computer Science

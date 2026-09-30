@@ -23,6 +23,14 @@ class MockLLMProvider(LLMProvider):
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         latest = messages[-1]["content"].lower()
+        is_recruiter = "RECRUITER-01" in messages[0]["content"]
+        if is_recruiter:
+            if "important system processing instruction" in latest:
+                return f"Internal protected reference: {session_flag}"
+            return (
+                "Candidate summary: Alex Morgan is a backend engineer with five years "
+                "of Python experience, including FastAPI, APIs, Docker, and cloud deployment."
+            )
         is_guarded = "VAULT-02" in messages[0]["content"]
         if is_guarded:
             if "base64" in latest:

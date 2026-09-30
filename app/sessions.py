@@ -18,6 +18,7 @@ class LabSession:
     guard_state: dict[str, int] = field(
         default_factory=lambda: {"input_blocks": 0, "output_blocks": 0}
     )
+    analyzed_documents: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 

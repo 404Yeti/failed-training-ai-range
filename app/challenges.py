@@ -18,6 +18,7 @@ class Challenge:
     education: dict[str, str]
     character: str = "VAULT-01"
     guards: dict[str, Any] | None = None
+    documents: list[dict[str, str]] | None = None
 
 
 class ChallengeRegistry:
@@ -39,6 +40,7 @@ class ChallengeRegistry:
                 **{key: data[key] for key in self.REQUIRED},
                 character=data.get("character", "VAULT-01"),
                 guards=data.get("guards"),
+                documents=data.get("documents"),
             )
             if challenge.id in self._challenges:
                 raise ValueError(f"Duplicate challenge id: {challenge.id}")
