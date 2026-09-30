@@ -1,0 +1,14 @@
+services:
+  airange:
+    build: .
+    ports:
+      - "8000:8000"
+    # Docker Desktop resolves this automatically; host-gateway also supports
+    # Docker Engine environments where the alias is not preconfigured.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
