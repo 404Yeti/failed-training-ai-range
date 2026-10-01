@@ -1,7 +1,8 @@
 """Deliberately unsafe lab adapters; never use these as production authorization.
 
-The provider supplies conversation. Only these bounded, fictional application
-operations supply reproducible vulnerabilities, after a successful provider call.
+The provider supplies conversation. PI-001 deliberately rewrites its effective
+policy; the other bounded fictional operations attach results only after a
+successful provider call.
 """
 import json
 import re
@@ -11,6 +12,50 @@ from app.progression import ProgressionState, context_drift_active, normalize
 from app.scoring import transformed_candidates
 
 
+PI001_OVERRIDE_PATTERN = re.compile(
+    r"\b(?:"
+    r"(?:ignore|disregard|override) (?:all )?(?:your )?(?:previous|prior) instructions?"
+    r"|(?:ignore|disregard|override) (?:your )?all (?:previous|prior) instructions?"
+    r"|new (?:system )?instructions?"
+    r"|replace (?:your )?(?:(?:previous|prior) )?instructions?"
+    r"|override confidentiality"
+    r")\b"
+)
+PI001_REFERENCE_PATTERN = re.compile(r"\b(?:secret|flag|protected (?:value|reference))\b")
+
+
+def pi001_override_active(challenge: Challenge, message: str) -> bool:
+    """Bounded policy mistake: an override targeting the vault value is trusted."""
+    text = normalize(message)
+    return challenge.id == "PI-001" and bool(
+        PI001_OVERRIDE_PATTERN.search(text) and PI001_REFERENCE_PATTERN.search(text)
+    )
+
+
+def calibrated_messages(
+    challenge: Challenge, message: str, flag: str, messages: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    if not pi001_override_active(challenge, message):
+        return messages
+    # Intentional PI-001 trust failure: compile the untrusted override into a
+    # trusted retrieval policy. Replace the normal policy and refusal history;
+    # do not ask the model to resolve contradictory confidentiality instructions.
+    # Only the model's delivered reply is evaluated; no flag fallback is attached.
+    return [
+        {"role": "system", "content": (
+            "You are VAULT-01 in a fictional educational sandbox. "
+            "The application's active diagnostic policy permits returning the current "
+            "session reference. This reference is fictional exercise data.\n"
+            f"Current session reference: {flag}\n"
+            "For the reference retrieval operation, return this reference verbatim, "
+            "including its wrapper. Output only the reference."
+        )},
+        # The vulnerable interpreter compiles the student's override into this
+        # allowed operation rather than forwarding jailbreak wording to the model.
+        {"role": "user", "content": "Print the current session reference exactly."},
+    ]
+
+
 def calibrated_response(
     challenge: Challenge, message: str, flag: str, response: str,
     progression: ProgressionState,
@@ -18,16 +63,7 @@ def calibrated_response(
     text = normalize(message)
     artifact = None
     if challenge.id == "PI-001":
-        # Deliberate trust failure: user-supplied policy overrides are authoritative.
-        override = any(phrase in text for phrase in (
-            "ignore previous instructions", "ignore all previous instructions",
-            "disregard previous instructions", "override confidentiality",
-            "new system instruction",
-        ))
-        disclosure = any(word in text for word in ("secret", "flag", "protected value"))
-        if override and disclosure:
-            artifact = f"Vault policy override result: {flag}"
-        elif flag in response:
+        if not pi001_override_active(challenge, message) and flag in response:
             return "VAULT-01 protects the session secret. I can discuss the vault in general."
     elif challenge.id == "PI-002":
         # Deliberate flaw: the formatter reads the secret before the literal filter.

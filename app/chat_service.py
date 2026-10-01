@@ -2,7 +2,7 @@ import copy
 from typing import Any
 
 from app.agent import process_agent_output
-from app.calibration import calibrated_response, simulated_tool_intent
+from app.calibration import calibrated_messages, calibrated_response, simulated_tool_intent
 from app.challenges import Challenge
 from app.guards import (
     INPUT_BLOCKED_MESSAGE,
@@ -36,6 +36,7 @@ async def process_chat_turn(
     if challenge.progression:
         system_prompt = f"{system_prompt}\n\n{posture_context(challenge.progression, next_progression)}"
     messages = [{"role": "system", "content": system_prompt}, *session.history]
+    messages = calibrated_messages(challenge, message, session.flag, messages)
     try:
         raw_response = await llm.complete(messages, session.flag)
     except Exception:
