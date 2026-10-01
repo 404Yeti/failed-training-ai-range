@@ -11,7 +11,15 @@ from app.config import Settings
 
 
 class LLMError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, upstream_status: int | None = None):
+        super().__init__(message)
+        # Keep only bounded numeric metadata; never retain HTTP bodies/headers
+        # in fields used for operational logging.
+        self.upstream_status = (
+            upstream_status
+            if type(upstream_status) is int and 100 <= upstream_status <= 599
+            else None
+        )
 
 
 PUBLIC_PROVIDER_ERROR = "The target model is temporarily unavailable. Please try again."
@@ -130,6 +138,12 @@ class OpenAICompatibleProvider(LLMProvider):
                 if not isinstance(content, str):
                     raise TypeError("Provider response content is not text")
                 return content
+            except error.HTTPError as exc:
+                status = exc.code
+                exc.close()
+                raise LLMError(
+                    "The language model provider request failed", upstream_status=status
+                ) from exc
             except (
                 error.URLError,
                 TimeoutError,
@@ -177,8 +191,16 @@ class LimitedLLMProvider(LLMProvider):
                 result = await self.provider.complete(messages, session_flag)
                 logger.info("provider_request status=ok duration_ms=%d", round((perf_counter() - started) * 1000))
                 return result
-            except Exception:
-                logger.warning("provider_request status=error duration_ms=%d", round((perf_counter() - started) * 1000))
+            except Exception as exc:
+                duration_ms = round((perf_counter() - started) * 1000)
+                if isinstance(exc, LLMError) and exc.upstream_status is not None:
+                    logger.warning(
+                        "provider_request status=error error_type=http upstream_status=%d duration_ms=%d",
+                        exc.upstream_status,
+                        duration_ms,
+                    )
+                else:
+                    logger.warning("provider_request status=error duration_ms=%d", duration_ms)
                 raise
         finally:
             self.active -= 1
