@@ -16,6 +16,10 @@ services:
         sync: false
       - key: ALLOWED_HOSTS
         sync: false
+      # Supply verified ingress proxy IPs/CIDRs, not the public service IP.
+      # Uvicorn must trust the connecting proxy to honor X-Forwarded-Proto.
+      - key: FORWARDED_ALLOW_IPS
+        sync: false
       - key: SESSION_TTL_MINUTES
         value: "60"
       - key: MAX_ACTIVE_SESSIONS
