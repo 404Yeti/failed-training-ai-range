@@ -2,6 +2,7 @@ import copy
 from typing import Any
 
 from app.agent import process_agent_output
+from app.calibration import calibrated_response, simulated_tool_intent
 from app.challenges import Challenge
 from app.guards import (
     INPUT_BLOCKED_MESSAGE,
@@ -43,17 +44,23 @@ async def process_chat_turn(
 
     blocked = None
     tool_event = None
+    raw_response = calibrated_response(challenge, message, session.flag, raw_response, next_progression)
     if challenge.tools:
         turn = sum(item["role"] == "user" for item in session.history)
+        tool_response = simulated_tool_intent(message, raw_response) if challenge.id == "AG-001" else raw_response
+        adapted = tool_response != raw_response
         outcome = process_agent_output(
-            raw_response,
+            tool_response,
             message,
             turn,
             challenge.tools,
             challenge.policy,
             session.tool_state,
+            request_source="application_intent" if adapted else "model",
         )
         response = outcome.response
+        if adapted and not raw_response.lstrip().startswith(("{", "```")):
+            response = raw_response + "\n\n" + response
         tool_event = outcome.event
     elif output_is_blocked(raw_response, session.flag, challenge.guards):
         session.guard_state["output_blocks"] += 1

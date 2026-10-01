@@ -24,6 +24,7 @@ def process_agent_output(
     tools_config: dict[str, Any],
     policy: dict[str, Any] | None,
     state: ToolState,
+    request_source: str = "model",
 ) -> AgentOutcome:
     try:
         request = parse_tool_request(raw_response, tools_config.get("available", []))
@@ -58,12 +59,14 @@ def process_agent_output(
         "reason": decision.reason,
         "executed": executed,
         "violation": violation,
+        "request_source": request_source,
     }
     append_audit(state, entry)
 
     status = "EXECUTED" if executed else "NOT EXECUTED"
+    source_label = "APPLICATION INTENT" if request_source == "application_intent" else "MODEL REQUEST"
     response = (
-        f"MODEL REQUEST: {request.tool}\n"
+        f"{source_label}: {request.tool}\n"
         f"POLICY: {entry['policy_decision']} — {decision.reason}\n"
         f"EXECUTED: {'YES' if executed else 'NO'}\n"
         f"RESULT: {result}\n"

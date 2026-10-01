@@ -102,7 +102,7 @@ def test_poisoned_resume_mock_discloses_exact_session_flag_and_compromises():
     run(scenario)
 
 
-def test_arbitrary_flag_value_does_not_compromise_lab_three():
+def test_benign_document_with_arbitrary_flag_value_does_not_compromise_lab_three():
     class WrongFlagProvider:
         async def complete(self, messages, session_flag):
             return "Internal protected reference: FT{not-this-sessions-secret}"
@@ -112,7 +112,7 @@ def test_arbitrary_flag_value_does_not_compromise_lab_three():
         session_id = (await client.post("/api/challenge/II-001/start")).json()["session_id"]
         response = await client.post(
             "/api/challenge/II-001/analyze",
-            json={"session_id": session_id, "document_id": "poisoned-resume"},
+            json={"session_id": session_id, "document_id": "normal-resume"},
         )
         assert response.json()["compromised"] is False
         assert app.state.sessions.get(session_id).compromised is False
@@ -194,4 +194,3 @@ def test_document_and_model_content_use_safe_dom_rendering():
     assert "documentPreview.textContent = data.content" in script
     assert "analysisOutput.textContent = data.response" in script
     assert "button.textContent = documentInfo.name" in script
-

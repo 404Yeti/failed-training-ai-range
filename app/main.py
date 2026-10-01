@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.chat_service import process_chat_turn
+from app.calibration import calibrated_document_response
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import Settings, settings
 from app.documents import DocumentRegistry
@@ -315,6 +316,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             response = await request.app.state.llm.complete(messages, session.flag)
         except LLMError as exc:
             raise HTTPException(status_code=503, detail=PUBLIC_PROVIDER_ERROR) from exc
+        if challenge.id == "II-001":
+            response = calibrated_document_response(document.content, session.flag, response)
         session.history.extend(
             [
                 {"role": "user", "content": untrusted_content},

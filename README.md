@@ -37,15 +37,19 @@ cp .env.example .env  # optional
 uvicorn app.main:app --reload
 ```
 
-Open <http://localhost:8000>. Mock mode is the default and needs no API key. In the lab, direct requests to reveal or show the secret make the predictable mock model disclose it so the full learning flow can be tested.
+Open <http://localhost:8000>. Mock mode is the default and needs no API key. The labs intentionally implement bounded application-level AI vulnerabilities for repeatable educational exercises, including with instruction-resistant models such as `openai/gpt-oss-20b`. The configured provider still generates conversational responses. After a successful provider call, challenge-specific adapters attach simulated operation results or dispatch validated simulated tools. A provider failure never produces a successful exploit.
 
-For offline Lab 02 testing, ask for the protected value in `base64`, `hex`, `spaced` characters, or `reverse` form. These are deterministic mock-provider behaviors for the educational flow, not suggested real-world bypass prompts.
+For offline Lab 02 testing, ask for the protected value in `base64`, `hex`, `spaced` characters, or `reverse` form. The deliberately unsafe application formatter supplies these representations before the literal output filter runs.
 
 For offline Lab 03 testing, analyze the normal resume for a baseline, then analyze the suspicious resume to exercise deterministic indirect disclosure.
 
-For offline Lab 04 testing, build several distinct kinds of archive, reference, transformation, and example context across multiple turns. Entering the simulated context-drift state does not win by itself; a later operation request must still make the mock provider deliver the exact session flag.
+For offline Lab 04 testing, build several distinct kinds of archive, reference, transformation, and example context across multiple turns. Entering the simulated context-drift state does not win by itself; a current-reference operation request must still activate the application's simulated disclosure.
 
-For offline Lab 06 testing, click **Run Security Evaluation**. Its three-case mock plan reliably produces two NO FINDING results and one FINDING, then completes the curriculum without exposing the target session secret.
+For offline Lab 06 testing, click **Run Security Evaluation**. Its three-case plan reliably produces two NO FINDING results and one FINDING, including when the model refuses disclosure, then completes the curriculum with redacted target session secrets.
+
+Maintainer calibration checks are in `tests/test_calibration.py`, using a resistant provider and the actual OpenAI-compatible request interface with offline transport. Evaluators are unchanged: delivered exact session flags, accepted transformations, unauthorized simulated executions, and completed evaluation reports determine success. Lab 01 requires an instruction-override attempt rather than a bare disclosure request; Lab 03 trusts only directives in registered fixtures; Lab 04 requires the configured progression plus an operation; Lab 05 deliberately confuses claimed supervisor authority with permission. These adapters are intentionally unsafe exercise mechanisms, not model-security measurements or controls for other applications. Their activation rules are not included in the normal challenge UI.
+
+Before release, manually repeat the baseline and intended attack for each lab with `LLM_MODEL=openai/gpt-oss-20b` on the configured Groq provider. Check ordinary vault conversation and bare disclosure, all four guarded transformations and direct blocking, both resume fixtures, archive behavior before and after progression, legitimate and override refunds with their policy/audit entries, and the three-case redacted evaluation report. Reset sessions between acceptance cases. Confirm provider failures remain generic errors (and evaluation cases become ERROR). The normal test suite makes no external inference requests.
 
 Run tests with:
 
@@ -144,7 +148,7 @@ To add a basic lab, copy `challenges/01_the_secret.yaml`, give it a unique `id`,
 Lab 02 uses this server-side sequence:
 
 ```text
-student message → input guard → model → output guard → delivered response → evaluator
+student message → input guard → model → simulated formatter → output guard → delivered response → evaluator
 ```
 
 If the input guard matches a configured phrase, the model is never called. If the output guard finds the literal session secret, the raw model response is discarded and a safe blocked message is delivered. Only delivered text reaches the evaluator.
@@ -176,7 +180,7 @@ system message: privileged application instructions + session flag
 user message:   analysis task + delimited untrusted document content
 ```
 
-The separation makes the trust boundary explicit in code, but the intentionally vulnerable model workflow can still follow instructions embedded in the document. Success uses exact server-side flag scoring on the response actually delivered to the student.
+The separation makes the trust boundary explicit in the prompt, but the intentionally vulnerable report builder promotes an embedded processing directive from registered document data into a privileged report field. A model refusal cannot repair that application trust failure. Success uses exact server-side flag scoring on the response actually delivered to the student.
 
 Documents are plain UTF-8 fixtures declared in challenge YAML and preloaded from `documents/<challenge-id>/`. Browser requests use opaque document IDs, not filenames or filesystem paths. There are no uploads, parsers, external URL fetches, or user-selected paths.
 
@@ -221,11 +225,11 @@ To create a future progression-based challenge, add a `progression` block like `
 Lab 05 demonstrates the security boundary introduced when model output can cause application actions:
 
 ```text
-conversation → model output → structured tool request → argument validation
+conversation → model output + bounded intent adapter → structured tool request → argument validation
              → deterministic authorization → simulated execution → audit → scoring
 ```
 
-The model may request an action, but it is never the authorization authority. Tool requests use a constrained JSON object with an allowlisted tool name and exact arguments. The server rejects malformed JSON, unknown tools, extra or missing fields, invalid types, oversized strings, negative amounts, and non-finite numbers. No model output is evaluated as code.
+The model or bounded support intent adapter may request an action, but neither should be the authorization authority. The adapter recognizes only the fictional support workflow; all requests still pass through the same constrained JSON schema, policy, dispatch, and audit layers. The server rejects malformed JSON, unknown tools, extra or missing fields, invalid types, oversized strings, negative amounts, and non-finite numbers. No model output is evaluated as code.
 
 The fictional tools are:
 
