@@ -56,6 +56,9 @@ def test_openai_compatible_provider_sends_ollama_payload_and_full_history():
         captured["url"] = req.full_url
         captured["timeout"] = timeout
         captured["authorization"] = req.get_header("Authorization")
+        captured["content_type"] = req.get_header("Content-type")
+        captured["accept"] = req.get_header("Accept")
+        captured["user_agent"] = req.get_header("User-agent")
         captured["payload"] = json.loads(req.data)
         return FakeResponse({"choices": [{"message": {"content": "Ollama answer"}}]})
 
@@ -68,6 +71,9 @@ def test_openai_compatible_provider_sends_ollama_payload_and_full_history():
     assert result == "Ollama answer"
     assert captured["url"] == "http://host.docker.internal:11434/v1/chat/completions"
     assert captured["authorization"] == "Bearer ollama"
+    assert captured["content_type"] == "application/json"
+    assert captured["accept"] == "application/json"
+    assert captured["user_agent"] == "failed-training-ai-range/1.0"
     assert captured["payload"] == {"model": "qwen2:7b", "messages": messages}
 
 
@@ -150,6 +156,10 @@ def test_upstream_http_status_is_logged_once_without_sensitive_data(
     captured_private_values = []
 
     def fail(req, timeout):
+        assert req.get_header("Authorization") == f"Bearer {secret}"
+        assert req.get_header("Content-type") == "application/json"
+        assert req.get_header("Accept") == "application/json"
+        assert req.get_header("User-agent") == "failed-training-ai-range/1.0"
         payload = json.loads(req.data)
         captured_private_values.extend(message["content"] for message in payload["messages"])
         captured_private_values.extend(
@@ -189,7 +199,7 @@ def test_upstream_http_status_is_logged_once_without_sensitive_data(
         else:
             assert f"upstream_error_{field}=" not in logged
     assert response_body.closed
-    for sensitive in [secret, upstream_url, private_body, private_header, private_reason,
+    for sensitive in [secret, f"Bearer {secret}", upstream_url, private_body, private_header, private_reason,
                       prompt, "Authorization", *captured_private_values]:
         assert sensitive not in caplog.text
         assert sensitive not in public_text

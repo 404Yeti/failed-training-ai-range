@@ -175,6 +175,10 @@ class OpenAICompatibleProvider(LLMProvider):
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    # Some hosted API/CDN configurations reject urllib's default
+                    # request signature, so use an explicit API-client User-Agent.
+                    "User-Agent": "failed-training-ai-range/1.0",
                 },
                 method="POST",
             )
