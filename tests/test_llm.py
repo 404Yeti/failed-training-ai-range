@@ -10,7 +10,7 @@ import pytest
 import httpx
 
 from app.config import Settings
-from app.llm import LLMError, MockLLMProvider, OpenAICompatibleProvider, PUBLIC_PROVIDER_ERROR, create_provider
+from app.llm import LLMError, MockLLMProvider, OpenAICompatibleProvider, PUBLIC_PROVIDER_ERROR, create_provider, _http_error_diagnostics
 from app.main import create_app
 
 
@@ -97,18 +97,51 @@ def test_mock_provider_remains_available_without_api_key():
     assert isinstance(provider, MockLLMProvider)
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 429, 500])
-def test_upstream_http_status_is_logged_once_without_sensitive_data(status, caplog):
+@pytest.mark.parametrize("status,content_type,body,category,tokens", [
+    *[(status, None, b"private-provider-body-and-model-response", "unknown", {})
+      for status in (400, 401, 403, 429, 500)],
+    (403, "Application/JSON; charset=utf-8", json.dumps({"error": {
+        "type": "permission_error", "code": "access.denied-403",
+        "message": "private-api-key private-provider-body-and-model-response",
+        "description": "private-header-value", "Authorization": "private-api-key",
+    }}).encode(), "json", {"type": "permission_error", "code": "access.denied-403"}),
+    (403, "application/problem+json", b'{"error":{"type":"blocked","code":"edge_403"}}',
+     "json", {"type": "blocked", "code": "edge_403"}),
+    (403, "text/html; cookie=private-header-value", b"<html>private-api-key</html>", "html", {}),
+    (403, "text/plain", b"private-api-key", "text", {}),
+    (403, "application/octet-stream", b"private-api-key", "unknown", {}),
+    (403, "application/json", b'{"error":{"message":"private-api-key"}}', "json", {}),
+    (403, "application/json", b'{"error":{"type":"private-api-key\\n","code":"https://private.example"}}', "json", {}),
+    (403, "application/json", b'{"error":{"type":401,"code":{"secret":"private-api-key"}}}', "json", {}),
+    (403, "application/json", json.dumps({"error": {"type": "x" * 65, "code": ""}}).encode(), "json", {}),
+    (403, "application/json", b'{"error":{"type":"blocked"}}' + b" " * 4096 + b"private-api-key", "json", {}),
+    (403, "application/json", b'{"error": private-api-key', "json", {}),
+    (403, "application/json", b'\xffprivate-api-key', "json", {}),
+    (403, "application/json", b'[{"type":"private-api-key"}]', "json", {}),
+    (403, "application/json", b'{"error":"private-api-key"}', "json", {}),
+    (403, "application/json", b"[" * 2000 + b"]" * 2000, "json", {}),
+])
+def test_upstream_http_status_is_logged_once_without_sensitive_data(
+    status, content_type, body, category, tokens, caplog,
+):
     secret = "private-api-key"
     upstream_url = "https://private-inference.example/v1/chat/completions"
     private_body = "private-provider-body-and-model-response"
     private_header = "private-header-value"
     private_reason = "private-http-reason"
     prompt = "private-user-prompt"
-    response_body = BytesIO(private_body.encode())
+    class BoundedBody(BytesIO):
+        def read(self, size=-1):
+            assert size == 4097
+            return super().read(size)
+
+    response_body = BoundedBody(body)
+    headers = {"Authorization": f"Bearer {secret}", "X-Private": private_header}
+    if content_type is not None:
+        headers["Content-Type"] = content_type
     failure = error.HTTPError(
         upstream_url, status, private_reason,
-        {"Authorization": f"Bearer {secret}", "X-Private": private_header}, response_body,
+        headers, response_body,
     )
     application = create_app(Settings(
         llm_provider="openai_compatible", llm_api_key=secret,
@@ -148,6 +181,13 @@ def test_upstream_http_status_is_logged_once_without_sensitive_data(status, capl
         f"provider_request status=error error_type=http upstream_status={status} duration_ms="
     )
     assert records[0].exc_info is None
+    logged = records[0].getMessage()
+    assert f"upstream_content_type_category={category}" in logged
+    for field in ("type", "code"):
+        if field in tokens:
+            assert f"upstream_error_{field}={tokens[field]}" in logged
+        else:
+            assert f"upstream_error_{field}=" not in logged
     assert response_body.closed
     for sensitive in [secret, upstream_url, private_body, private_header, private_reason,
                       prompt, "Authorization", *captured_private_values]:
@@ -158,3 +198,14 @@ def test_upstream_http_status_is_logged_once_without_sensitive_data(status, capl
 @pytest.mark.parametrize("unsafe_status", ["401\nsecret", 999, True, None])
 def test_llm_error_only_retains_bounded_numeric_status(unsafe_status):
     assert LLMError("provider request failed", upstream_status=unsafe_status).upstream_status is None
+
+
+@pytest.mark.parametrize("read_fails", [False, True])
+def test_http_diagnostic_read_respects_smaller_response_limit_and_failures(read_fails):
+    body = BytesIO(b'{"error":{"type":"blocked"}}' + b" " * 1024)
+    failure = error.HTTPError("https://private.example", 403, "private", {"Content-Type": "application/json"}, body)
+    with patch.object(failure, "read", side_effect=OSError("private-secret") if read_fails else None,
+                      return_value=body.getvalue()[:1025]) as read:
+        assert _http_error_diagnostics(failure, 1024) == {"upstream_content_type_category": "json"}
+        read.assert_called_once_with(1025)
+    failure.close()

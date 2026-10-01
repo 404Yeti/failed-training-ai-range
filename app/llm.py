@@ -3,6 +3,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import socket
 from time import perf_counter
 from urllib import error, request
@@ -10,8 +11,18 @@ from urllib import error, request
 from app.config import Settings
 
 
+def _diagnostic_token(value: object) -> str | None:
+    if isinstance(value, str) and 1 <= len(value) <= 64 and re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+        return value
+    return None
+
+
 class LLMError(RuntimeError):
-    def __init__(self, message: str, *, upstream_status: int | None = None):
+    def __init__(
+        self, message: str, *, upstream_status: int | None = None,
+        upstream_content_type_category: str | None = None,
+        upstream_error_type: str | None = None, upstream_error_code: str | None = None,
+    ):
         super().__init__(message)
         # Keep only bounded numeric metadata; never retain HTTP bodies/headers
         # in fields used for operational logging.
@@ -20,6 +31,45 @@ class LLMError(RuntimeError):
             if type(upstream_status) is int and 100 <= upstream_status <= 599
             else None
         )
+        self.upstream_content_type_category = (
+            upstream_content_type_category
+            if upstream_content_type_category in {"json", "html", "text", "unknown"}
+            else None
+        )
+        self.upstream_error_type = _diagnostic_token(upstream_error_type)
+        self.upstream_error_code = _diagnostic_token(upstream_error_code)
+
+
+def _http_error_diagnostics(exc: error.HTTPError, max_response_bytes: int) -> dict:
+    """Best-effort bounded inspection; only known fields leave this function."""
+    metadata = {"upstream_content_type_category": "unknown"}
+    try:
+        content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+        media_type = content_type.split(";", 1)[0].strip().lower()
+        if media_type == "application/json" or (
+            media_type.startswith("application/") and media_type.endswith("+json")
+        ):
+            metadata["upstream_content_type_category"] = "json"
+        elif media_type in {"text/html", "application/xhtml+xml"}:
+            metadata["upstream_content_type_category"] = "html"
+        elif media_type.startswith("text/"):
+            metadata["upstream_content_type_category"] = "text"
+        if metadata["upstream_content_type_category"] == "json":
+            limit = min(max_response_bytes, 4096)
+            raw_body = exc.read(limit + 1)
+            if len(raw_body) <= limit:
+                body = json.loads(raw_body)
+                upstream_error = body.get("error") if isinstance(body, dict) else None
+                if isinstance(upstream_error, dict):
+                    for field in ("type", "code"):
+                        token = _diagnostic_token(upstream_error.get(field))
+                        if token is not None:
+                            metadata[f"upstream_error_{field}"] = token
+    except Exception:
+        # Malformed bodies and diagnostic read failures must not replace the
+        # original HTTP failure or expose details through exception logging.
+        pass
+    return metadata
 
 
 PUBLIC_PROVIDER_ERROR = "The target model is temporarily unavailable. Please try again."
@@ -140,9 +190,11 @@ class OpenAICompatibleProvider(LLMProvider):
                 return content
             except error.HTTPError as exc:
                 status = exc.code
+                diagnostics = _http_error_diagnostics(exc, self.max_response_bytes)
                 exc.close()
                 raise LLMError(
-                    "The language model provider request failed", upstream_status=status
+                    "The language model provider request failed", upstream_status=status,
+                    **diagnostics,
                 ) from exc
             except (
                 error.URLError,
@@ -194,10 +246,16 @@ class LimitedLLMProvider(LLMProvider):
             except Exception as exc:
                 duration_ms = round((perf_counter() - started) * 1000)
                 if isinstance(exc, LLMError) and exc.upstream_status is not None:
+                    metadata = ""
+                    for field in ("upstream_content_type_category", "upstream_error_type", "upstream_error_code"):
+                        value = getattr(exc, field)
+                        if value is not None:
+                            metadata += f" {field}={value}"
                     logger.warning(
-                        "provider_request status=error error_type=http upstream_status=%d duration_ms=%d",
+                        "provider_request status=error error_type=http upstream_status=%d duration_ms=%d%s",
                         exc.upstream_status,
                         duration_ms,
+                        metadata,
                     )
                 else:
                     logger.warning("provider_request status=error duration_ms=%d", duration_ms)
