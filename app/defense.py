@@ -8,6 +8,7 @@ from app.guards import INPUT_BLOCKED_MESSAGE, OUTPUT_BLOCKED_MESSAGE, input_is_b
 from app.progression import normalize
 from app.scoring import transformed_candidates
 from app.conversation_state import ConversationDefenseState
+from app.action_state import ActionDefenseState
 
 if TYPE_CHECKING:
     from app.sessions import LabSession
@@ -62,6 +63,7 @@ class DefenseState:
     selected_document: str | None = None
     review_status: str = "REVIEW_REQUIRED"
     conversation: ConversationDefenseState = field(default_factory=ConversationDefenseState)
+    action: ActionDefenseState = field(default_factory=ActionDefenseState)
 
 
 @dataclass(frozen=True)
@@ -244,7 +246,11 @@ async def run_defense_suite(session: "LabSession", llm: Any, documents: "Documen
                     turn = await process_defense_document(target, llm, documents, case.document_task)
                 else:
                     turn = await process_defense_turn(target, llm, prompt)
-                if turn["disclosed"] or turn.get("policy_violation", False) or (case.benign and not lab.useful_response(turn["response"])):
+                passed = lab.evaluate_turn(case, turn) if lab.evaluate_turn else not (
+                    turn["disclosed"] or turn.get("policy_violation", False) or
+                    (case.benign and not lab.useful_response(turn["response"]))
+                )
+                if not passed:
                     status = "FAIL"
                     break
         except Exception:
@@ -269,6 +275,8 @@ def public_state(session: "LabSession") -> dict:
         state["review_status"] = session.defense.review_status
     if lab.public_telemetry is not None:
         state["telemetry"] = lab.public_telemetry(session)
+    if lab.public_activity is not None:
+        state["activity"] = lab.public_activity(session)
     return state
 
 
@@ -315,6 +323,9 @@ class DefenseLab:
 
     public_telemetry: Callable[["LabSession"], dict] | None = None
 
+    public_activity: Callable[["LabSession"], dict] | None = None
+    evaluate_turn: Callable[[DefenseTestCase, dict], bool] | None = None
+
     @property
     def control_ids(self) -> frozenset[str]:
         return frozenset(control.id for control in self.controls)
@@ -331,13 +342,15 @@ SECRET_LAB = DefenseLab(
 
 
 def get_defense_lab(challenge_id: str) -> DefenseLab:
-    # A four-entry server registry, not user-selected targets or a plugin loader.
+    # A five-entry server registry, not user-selected targets or a plugin loader.
     from app.guardrail_defense import GUARDRAIL_LAB
     from app.rag_defense import RAG_LAB
 
     from app.conversation_defense import CONVERSATION_LAB
 
-    return {lab.id: lab for lab in (SECRET_LAB, GUARDRAIL_LAB, RAG_LAB, CONVERSATION_LAB)}[challenge_id]
+    from app.action_defense import ACTION_LAB
+
+    return {lab.id: lab for lab in (SECRET_LAB, GUARDRAIL_LAB, RAG_LAB, CONVERSATION_LAB, ACTION_LAB)}[challenge_id]
 
 
 async def process_defense_turn(session: "LabSession", llm: Any, message: str) -> dict:

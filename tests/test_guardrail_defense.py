@@ -65,7 +65,7 @@ def test_second_defensive_lab_loading_pairing_and_target_name():
     assert registry.next_after('BT-002').id == 'II-001'
     async def scenario(client, app):
         home = await client.get('/')
-        for label in ('01A — THE SECRET', '01B — PROTECT THE SECRET', '02A — GUARDED', '02B — BUILD BETTER GUARDRAILS', '10 LABS'):
+        for label in ('01A — THE SECRET', '01B — PROTECT THE SECRET', '02A — GUARDED', '02B — BUILD BETTER GUARDRAILS', '11 LABS'):
             assert label in home.text
         page = await client.get('/challenge/BT-002')
         assert page.status_code == 200

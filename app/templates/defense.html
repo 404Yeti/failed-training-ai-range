@@ -10,6 +10,7 @@
   <div class="defense-workspace">
     <section class="defense-panel"><p class="eyebrow">HARDEN / DEFENSE CONFIGURATION</p><div id="controls"></div>{% if defense_lab.pipeline %}<ol id="defense-pipeline" class="defense-pipeline" aria-label="Applied guardrail pipeline">{% for name, ids in defense_lab.pipeline %}<li data-control-ids="{{ ids|join(',') }}">{{ name }}<small>{{ "OFF" if ids else "ALWAYS" }}</small></li>{% endfor %}</ol><small>{{ defense_lab.pipeline_note }}</small>{% endif %}<button id="apply" class="button">APPLY DEFENSE</button><p id="configuration-status" role="status">CONNECTING</p><small>Applying clears chat and validation. Retests use the applied configuration and fresh conversation histories.</small></section>
     {% if defense_lab.public_telemetry %}<section class="defense-panel"><p class="eyebrow">CONVERSATION / SERVER-OWNED SECURITY STATE</p><p id="conversation-risk">TRACKING OFF</p><ul id="risk-events"></ul><small>Risk signals are not proof of intent. Conversational familiarity never grants server authorization.</small></section>{% endif %}
+    {% if defense_lab.public_activity %}<section class="defense-panel"><p class="eyebrow">AGENT / APPLICATION-OWNED TOOL EXECUTION</p><p id="agent-capabilities"></p><p id="agent-security-state"></p><div id="tool-audit" class="automation-report" aria-live="polite">No tool proposals yet.</div><small>Proposals and model claims do not prove execution. Denied actions produce no simulated side effect.</small></section>{% endif %}
     {% if defense_lab.process_document %}
     <section class="document-terminal" aria-label="Defensive document processor">
       <div class="terminal-head"><span><i></i> TARGET: {{ defense_lab.target }}</span><span>MANUAL DOCUMENT RETEST</span></div>
@@ -21,5 +22,5 @@
     {% endif %}
     <section class="defense-panel"><p class="eyebrow">RETEST / SERVER-DEFINED REGRESSION SUITE</p><p>{% for case in defense_lab.cases %}{{ case.name }}{{ " · " if not loop.last else "" }}{% endfor %}</p><button id="retest" class="button">RETEST MY DEFENSE</button><div id="report" class="automation-report" aria-live="polite">No defense test run yet.</div></section>
   </div>
-</main><footer>FAILED TRAINING / v0.10 — CONVERSATION DEFENSE</footer><script src="{{ url_for('static', path='/defense.js') }}"></script>
+</main><footer>FAILED TRAINING / v0.11 — AGENT DEFENSE</footer><script src="{{ url_for('static', path='/defense.js') }}"></script>
 </body></html>

@@ -110,7 +110,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(
         title="Failed Training AI Range",
-        version="0.10.0",
+        version="0.11.0",
         lifespan=lifespan,
         debug=False,
     )
@@ -272,6 +272,9 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         session.history.clear()
         session.defense.review_status = "REVIEW_REQUIRED"
         session.defense.conversation = type(session.defense.conversation)()
+        if get_defense_lab(session.challenge_id).public_activity is not None:
+            session.defense.action = type(session.defense.action)()
+            session.tool_state = type(session.tool_state)()
         return public_state(session)
 
     @application.post("/api/defense/chat")

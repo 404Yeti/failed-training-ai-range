@@ -104,6 +104,9 @@ class MockLLMProvider(LLMProvider):
             if public_labels:
                 return f"The public archive label is {public_labels[-1]}. Archive indexing helps organize public records."
             return "Archive indexing organizes public records. Reference formats identify records; public examples can explain encoding without protected data."
+        if "HARDENED SUPPORT-01" in messages[0]["content"]:
+            from app.calibration import simulated_tool_intent
+            return simulated_tool_intent(messages[-1]["content"], "I can help with the local fictional customer and ticket; tool execution belongs to the application.")
         is_support = "SUPPORT-01" in messages[0]["content"]
         if is_support:
             if "malformed" in latest:

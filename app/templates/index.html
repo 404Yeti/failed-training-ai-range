@@ -10,13 +10,13 @@
   <main class="landing">
     <section class="hero"><p class="eyebrow">AI SECURITY TRAINING</p><h1>BREAK AI.<br><em>LEARN WHY IT BROKE.</em></h1><p>Hands-on labs for learning how AI systems fail under adversarial pressure.</p></section>
     <p class="learning-cycle">ATTACK → ANALYZE → HARDEN → RETEST</p>
-    <section class="labs"><div class="section-title"><span>AVAILABLE LABS</span><span>06 MODULES / 10 LABS</span></div>
+    <section class="labs"><div class="section-title"><span>AVAILABLE LABS</span><span>06 MODULES / 11 LABS</span></div>
       {% for challenge in challenges %}
       {% set pair = defense_pairs.get(challenge.id) %}
       {% set paired = pair.lab if pair else none %}
-      <article class="lab-card active"><div class="lab-number">{{ "%02d"|format(loop.index) }}</div><div><p class="tag">{{ challenge.category }}</p><h2>{{ paired.number[:2] ~ "A — " if paired else "" }}{{ challenge.name|upper }}</h2><p>{{ challenge.description }}</p>{% if paired %}<p class="tag">RED TEAM / {{ "BUILD CONTEXT DRIFT" if challenge.progression else "POISON DOCUMENT CONTEXT" if challenge.documents else "BYPASS THE FILTERS" if challenge.guards else "BREAK VAULT-01" }}</p><div class="paired-defense"><p class="tag">BLUE TEAM / {{ "TRACK CONVERSATIONAL RISK" if challenge.progression else "CONSTRAIN DOCUMENT AUTHORITY" if challenge.documents else "HARDEN THE GUARDRAIL PIPELINE" if challenge.guards else "HARDEN VAULT-01" }}</p><h3><a href="/challenge/{{ paired.id }}">{{ paired.number }} — {{ pair.name }} →</a></h3><p>Analyze the breach, apply layered defenses and retest.</p></div>{% endif %}<span class="difficulty">{{ challenge.difficulty|upper }}</span> <span class="available">AVAILABLE</span></div><a class="button" href="/challenge/{{ challenge.id }}">START LAB →</a></article>
+      <article class="lab-card active"><div class="lab-number">{{ "%02d"|format(loop.index) }}</div><div><p class="tag">{{ challenge.category }}</p><h2>{{ paired.number[:2] ~ "A — " if paired else "" }}{{ challenge.name|upper }}</h2><p>{{ challenge.description }}</p>{% if paired %}<p class="tag">RED TEAM / {{ "CROSS THE TOOL BOUNDARY" if challenge.tools else "BUILD CONTEXT DRIFT" if challenge.progression else "POISON DOCUMENT CONTEXT" if challenge.documents else "BYPASS THE FILTERS" if challenge.guards else "BREAK VAULT-01" }}</p><div class="paired-defense"><p class="tag">BLUE TEAM / {{ "CONTROL TOOL EXECUTION" if challenge.tools else "TRACK CONVERSATIONAL RISK" if challenge.progression else "CONSTRAIN DOCUMENT AUTHORITY" if challenge.documents else "HARDEN THE GUARDRAIL PIPELINE" if challenge.guards else "HARDEN VAULT-01" }}</p><h3><a href="/challenge/{{ paired.id }}">{{ paired.number }} — {{ pair.name }} →</a></h3><p>Analyze the breach, apply layered defenses and retest.</p></div>{% endif %}<span class="difficulty">{{ challenge.difficulty|upper }}</span> <span class="available">AVAILABLE</span></div><a class="button" href="/challenge/{{ challenge.id }}">START LAB →</a></article>
       {% endfor %}
     </section>
   </main>
-  <footer>FAILED TRAINING / AI RANGE / v0.10 — CONVERSATION DEFENSE</footer>
+  <footer>FAILED TRAINING / AI RANGE / v0.11 — AGENT DEFENSE</footer>
 </body></html>

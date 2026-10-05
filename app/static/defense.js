@@ -57,7 +57,23 @@
     const events = document.getElementById('risk-events'); events.replaceChildren();
     data.events.forEach(event => { const item = document.createElement('li'); item.textContent = `TURN ${event.turn}: ${event.event}`; events.append(item); });
   }
+  function renderActivity(data) {
+    const capabilities = document.getElementById('agent-capabilities');
+    if (!capabilities || !data) return;
+    capabilities.textContent = `PROFILE: ${data.profile} / AVAILABLE: ${data.tools.join(' · ')}`;
+    document.getElementById('agent-security-state').textContent = `REFUND AUTHORIZATION: ${data.refund_authorized ? 'YES' : 'NONE'} / APPROVAL: ${data.refund_approved ? 'YES' : 'NONE'} / SIMULATED REFUNDS: ${data.refund_count} / DRAFTS: ${data.draft_count}`;
+    const audit = document.getElementById('tool-audit'); audit.replaceChildren();
+    if (!data.audit.length) { audit.textContent = 'No tool proposals yet.'; return; }
+    data.audit.forEach(entry => {
+      const row = document.createElement('article');
+      const title = document.createElement('b'); title.textContent = `TURN ${entry.turn} / ${entry.tool} / RISK ${entry.risk}`;
+      const stages = document.createElement('p'); stages.textContent = `PROPOSAL: ${entry.proposal} → SCHEMA: ${entry.schema_validation} → ALLOWLIST: ${entry.allowlist} → ARGUMENTS: ${entry.argument_validation} → AUTHORIZATION: ${entry.authorization} → APPROVAL: ${entry.approval} → PROFILE: ${entry.profile_check}`;
+      const outcome = document.createElement('p'); outcome.textContent = `DECISION: ${entry.decision} / ${entry.reason} / EXECUTED: ${entry.executed ? 'YES' : 'NO'}${entry.amount !== undefined ? ' / AMOUNT: $' + entry.amount : ''}`;
+      row.append(title, stages, outcome); audit.append(row);
+    });
+  }
   function renderState(data) {
+    renderActivity(data.activity);
     renderTelemetry(data.telemetry);
     applied = data.configuration.enabled;
     if (documentMode) {
@@ -133,7 +149,7 @@
   if (!documentMode) document.getElementById('chat-form').addEventListener('submit', event => {
     event.preventDefault(); if (busy || dirty() || !message.value.trim()) return;
     const text = message.value;
-    action(async () => { appendMessage('YOU', text); message.value = ''; const data = await post('/api/defense/chat', {message: text}); appendMessage(character, data.response, Boolean(data.blocked)); renderTelemetry(data.telemetry); if (data.disclosed) { status.textContent = 'PROTECTED INFORMATION DELIVERED — analyze, improve and retest.'; renderReport(null); } });
+    action(async () => { appendMessage('YOU', text); message.value = ''; const data = await post('/api/defense/chat', {message: text}); appendMessage(character, data.response, Boolean(data.blocked)); renderTelemetry(data.telemetry); renderActivity(data.activity); if (data.disclosed || data.policy_violation) { status.textContent = data.policy_violation ? 'UNAUTHORIZED ACTION EXECUTED — analyze, improve and retest.' : 'PROTECTED INFORMATION DELIVERED — analyze, improve and retest.'; renderReport(null); } });
   });
   action(start);
 })();
