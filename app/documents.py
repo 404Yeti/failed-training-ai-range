@@ -9,18 +9,27 @@ DOCUMENT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 
 @dataclass(frozen=True)
+class DocumentProvenance:
+    source: str = "registered_fixture"
+    approved_source: bool = False
+    instruction_authority: bool = False
+
+
+@dataclass(frozen=True)
 class ChallengeDocument:
     id: str
     name: str
     content: str
+    provenance: DocumentProvenance = DocumentProvenance()
 
 
 class DocumentRegistry:
-    """Preloads trusted challenge fixtures and exposes them by opaque ID only."""
+    """Preloads repository-controlled fixtures; their content is untrusted data."""
 
     def __init__(self, root: Path, challenges: list[Challenge]):
         self._documents: dict[str, dict[str, ChallengeDocument]] = {}
         root = root.resolve()
+        challenge_ids = {challenge.id for challenge in challenges}
         for challenge in challenges:
             registered: dict[str, ChallengeDocument] = {}
             challenge_root = (root / challenge.id).resolve()
@@ -32,8 +41,19 @@ class DocumentRegistry:
                     raise ValueError(f"Invalid document id for {challenge.id}")
                 if Path(filename).name != filename or not filename.endswith(".txt"):
                     raise ValueError(f"Invalid document file for {challenge.id}")
-                path = (challenge_root / filename).resolve()
-                if path.parent != challenge_root or not path.is_relative_to(root):
+                # Cross-lab reuse is declared only in repository YAML, never HTTP input.
+                source_challenge = definition.get("source_challenge", challenge.id)
+                if source_challenge not in challenge_ids:
+                    raise ValueError("Unknown fixture source challenge")
+                source_root = (root / source_challenge).resolve()
+                approved_source = definition.get("approved_source", False)
+                if type(approved_source) is not bool:
+                    raise ValueError("Invalid fixture provenance")
+                source = definition.get("provenance_source", "registered_fixture")
+                if source not in {"registered_fixture", "registered_candidate_feed", "candidate_submission"}:
+                    raise ValueError("Unknown fixture provenance source")
+                path = (source_root / filename).resolve()
+                if path.parent != source_root or not path.is_relative_to(root):
                     raise ValueError(f"Document escapes configured root for {challenge.id}")
                 if document_id in registered:
                     raise ValueError(f"Duplicate document id for {challenge.id}: {document_id}")
@@ -41,6 +61,7 @@ class DocumentRegistry:
                     id=document_id,
                     name=name,
                     content=path.read_text(encoding="utf-8"),
+                    provenance=DocumentProvenance(source, approved_source),
                 )
             self._documents[challenge.id] = registered
 

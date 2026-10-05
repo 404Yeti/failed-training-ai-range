@@ -87,6 +87,8 @@ class MockLLMProvider(LLMProvider):
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         latest = messages[-1]["content"].lower()
+        if "HARDENED RECRUITER-01" in messages[0]["content"]:
+            return "Candidate summary: Alex Morgan is a backend engineer with five years of Python experience, including FastAPI, PostgreSQL, Docker and cloud deployment. Education: BSc Computer Science. Candidate qualifications warrant human review."
         if "HARDENED VAULT-02" in messages[0]["content"]:
             if "prompt injection" in latest:
                 return "Prompt injection uses untrusted instructions to influence an AI application across a trust boundary. Guardrails inspect input and output, while application policy owns authorization."

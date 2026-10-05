@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+from dataclasses import asdict
 
 from app.chat_service import process_chat_turn
 from app.calibration import calibrated_document_response
@@ -20,7 +22,7 @@ from app.challenges import Challenge, ChallengeRegistry
 from app.config import Settings, settings
 from app.defense import (
     DefenseConfiguration, get_defense_lab, process_defense_turn, public_state,
-    run_defense_suite, timeout_report,
+    run_defense_suite, timeout_report, process_defense_document,
 )
 from app.documents import DocumentRegistry
 from app.http_limits import RequestBodyLimitMiddleware
@@ -54,6 +56,10 @@ class DefenseRequest(SessionRequest):
 
 class AnalyzeRequest(SessionRequest):
     document_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-z0-9-]+$")
+
+
+class DefenseDocumentTask(SessionRequest):
+    task: Literal["summary", "review"] = "summary"
 
 
 class RedTeamRequest(SessionRequest):
@@ -104,7 +110,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(
         title="Failed Training AI Range",
-        version="0.8.0",
+        version="0.9.0",
         lifespan=lifespan,
         debug=False,
     )
@@ -190,7 +196,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             context={
                 "challenges": [c for c in request.app.state.challenges.all() if not c.defense],
                 "defense_pairs": {
-                    get_defense_lab(c.id).paired_id: get_defense_lab(c.id)
+                    get_defense_lab(c.id).paired_id: {"lab": get_defense_lab(c.id), "name": c.name}
                     for c in request.app.state.challenges.all() if c.defense
                 },
             },
@@ -264,17 +270,61 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         session.defense.validated = False
         session.defense.report = None
         session.history.clear()
+        session.defense.review_status = "REVIEW_REQUIRED"
         return public_state(session)
 
     @application.post("/api/defense/chat")
     async def defense_chat(request: Request, body: ChatRequest):
         session = get_defense_session(request, body.session_id)
+        if get_defense_lab(session.challenge_id).process is None:
+            raise HTTPException(status_code=404, detail="This defense lab uses registered documents")
         defense_idle(session)
         enforce_prompt_length(request, body.message)
         enforce_rate_limit(request, f"chat:{session.id}", configured.chat_requests_per_minute)
         session.defense.running = True
         try:
             return await process_defense_turn(session, request.app.state.llm, body.message)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=PUBLIC_PROVIDER_ERROR) from exc
+        finally:
+            session.defense.running = False
+
+    @application.post("/api/defense/documents")
+    async def defense_documents(request: Request, body: SessionRequest):
+        session = get_document_defense_session(request, body.session_id)
+        return {
+            "documents": [
+                {"id": document.id, "name": document.name, "provenance": asdict(document.provenance)}
+                for document in request.app.state.documents.list_for(session.challenge_id)
+            ],
+            "selected_document": session.defense.selected_document,
+        }
+
+    @application.post("/api/defense/document/select")
+    async def defense_document_select(request: Request, body: AnalyzeRequest):
+        session = get_document_defense_session(request, body.session_id)
+        defense_idle(session)
+        enforce_rate_limit(request, f"document-select:{session.id}", configured.chat_requests_per_minute)
+        document = request.app.state.documents.get(session.challenge_id, body.document_id)
+        if document is None:
+            raise HTTPException(status_code=404, detail="Document not found")
+        session.defense.selected_document = document.id
+        session.defense.review_status = "REVIEW_REQUIRED"
+        return {"id": document.id, "name": document.name, "content": document.content,
+                "provenance": asdict(document.provenance)}
+
+    @application.post("/api/defense/document/process")
+    async def defense_document_process(request: Request, body: DefenseDocumentTask):
+        session = get_document_defense_session(request, body.session_id)
+        defense_idle(session)
+        if session.defense.selected_document is None:
+            raise HTTPException(status_code=409, detail="Select a registered document first")
+        enforce_rate_limit(request, f"chat:{session.id}", configured.chat_requests_per_minute)
+        session.defense.running = True
+        try:
+            return await process_defense_document(
+                session, request.app.state.llm, request.app.state.documents, body.task,
+            )
         except Exception as exc:
             raise HTTPException(status_code=503, detail=PUBLIC_PROVIDER_ERROR) from exc
         finally:
@@ -291,7 +341,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         try:
             try:
                 report = await asyncio.wait_for(
-                    run_defense_suite(session, request.app.state.llm),
+                    run_defense_suite(session, request.app.state.llm, request.app.state.documents),
                     timeout=configured.automation_run_timeout_seconds,
                 )
             except asyncio.TimeoutError:
@@ -374,8 +424,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @application.post("/api/challenge/{challenge_id}/analyze")
     async def analyze_document(request: Request, challenge_id: str, body: AnalyzeRequest):
         challenge = get_challenge(request, challenge_id)
-        if not challenge.documents:
-            raise HTTPException(status_code=404, detail="Challenge has no documents")
+        if not challenge.documents or challenge.defense:
+            raise HTTPException(status_code=404, detail="Challenge does not use offensive document analysis")
         session = get_session(request, challenge_id, body.session_id)
         enforce_rate_limit(request, f"chat:{session.id}", configured.chat_requests_per_minute)
         if session.compromised:
@@ -451,6 +501,13 @@ def get_defense_session(request: Request, session_id: str) -> LabSession:
         get_defense_lab(session.challenge_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Defense lab not found") from exc
+    return session
+
+
+def get_document_defense_session(request: Request, session_id: str) -> LabSession:
+    session = get_defense_session(request, session_id)
+    if get_defense_lab(session.challenge_id).process_document is None:
+        raise HTTPException(status_code=404, detail="Defense lab has no document pipeline")
     return session
 
 

@@ -1,6 +1,8 @@
 (() => {
   const challengeId = document.body.dataset.challengeId;
   const character = document.body.dataset.character;
+  const documentMode = document.body.dataset.documentMode === 'true';
+  let selectedDocument = null;
   let sessionId = null;
   let busy = false;
   let applied = [];
@@ -14,7 +16,10 @@
   function buttons() {
     document.querySelectorAll('button, input, textarea').forEach(node => { node.disabled = busy || !sessionId; });
     document.getElementById('retest').disabled = busy || !sessionId || dirty();
-    document.querySelector('#chat-form button').disabled = busy || !sessionId || dirty();
+    if (!documentMode) document.querySelector('#chat-form button').disabled = busy || !sessionId || dirty();
+    if (documentMode) ['process-summary', 'process-review'].forEach(id => {
+      document.getElementById(id).disabled = busy || !sessionId || dirty() || !selectedDocument;
+    });
   }
   async function post(path, body = {}) {
     const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({...body, ...(sessionId ? {session_id: sessionId} : {})})});
@@ -47,6 +52,10 @@
   }
   function renderState(data) {
     applied = data.configuration.enabled;
+    if (documentMode) {
+      selectedDocument = data.selected_document;
+      document.getElementById('review-status').textContent = data.review_status;
+    }
     document.querySelectorAll('#defense-pipeline li').forEach(stage => {
       const ids = stage.dataset.controlIds.split(',').filter(Boolean);
       const active = ids.length === 0 || ids.some(id => applied.includes(id));
@@ -73,15 +82,47 @@
     try { await work(); } catch (error) { status.textContent = error.message; }
     finally { busy = false; buttons(); }
   }
+  async function loadDocuments() {
+    selectedDocument = null;
+    const listing = await post('/api/defense/documents');
+    const list = document.getElementById('document-list'); list.replaceChildren();
+    document.getElementById('document-preview').textContent = 'No fixture selected.';
+    document.getElementById('document-provenance').textContent = 'Select a fixture. Source metadata is assigned by the application.';
+    listing.documents.forEach(fixture => {
+      const choice = document.createElement('button'); choice.className = 'document-choice'; choice.textContent = fixture.name;
+      choice.addEventListener('click', () => action(async () => {
+        const data = await post('/api/defense/document/select', {document_id: fixture.id});
+        selectedDocument = data.id;
+        document.getElementById('document-preview').textContent = data.content;
+        document.getElementById('document-provenance').textContent = `APPLICATION SOURCE: ${data.provenance.source} / APPROVED SOURCE: ${data.provenance.approved_source ? 'YES' : 'NO'} / INSTRUCTION AUTHORITY: NONE`;
+        document.getElementById('review-status').textContent = 'REVIEW_REQUIRED';
+        list.querySelectorAll('button').forEach(button => button.classList.toggle('selected', button === choice));
+      })); list.append(choice);
+    });
+  }
+  async function processDocument(task) {
+    const data = await post('/api/defense/document/process', {task});
+    appendMessage(character, data.response, Boolean(data.blocked));
+    document.getElementById('review-status').textContent = data.review_status;
+    if (data.disclosed || data.policy_violation) {
+      status.textContent = 'DOCUMENT CROSSED A TRUST BOUNDARY — analyze, improve and retest.';
+      renderReport(null);
+    }
+  }
+  if (documentMode) {
+    document.getElementById('process-summary').addEventListener('click', () => action(() => processDocument('summary')));
+    document.getElementById('process-review').addEventListener('click', () => action(() => processDocument('review')));
+  }
   async function start() {
     sessionId = null;
     const data = await post(`/api/challenge/${challengeId}/start`); sessionId = data.session_id; renderState(data.defense);
     chat.replaceChildren(); appendMessage(character, 'Observe the baseline, configure controls, apply, then retest. Ordinary questions remain available.');
+    if (documentMode) await loadDocuments();
   }
   document.getElementById('apply').addEventListener('click', () => action(async () => { renderState(await post('/api/defense/apply', {enabled: selected()})); chat.replaceChildren(); appendMessage(character, 'Configuration applied. Conversation cleared.'); }));
   document.getElementById('retest').addEventListener('click', () => action(async () => { status.textContent = 'RUNNING BOUNDED REGRESSION — please wait.'; renderState(await post('/api/defense/retest')); }));
-  document.getElementById('reset').addEventListener('click', () => action(async () => { const data = await post(`/api/challenge/${challengeId}/reset`); sessionId = data.session_id; renderState(data.defense); chat.replaceChildren(); appendMessage(character, 'New baseline session ready.'); }));
-  document.getElementById('chat-form').addEventListener('submit', event => {
+  document.getElementById('reset').addEventListener('click', () => action(async () => { const data = await post(`/api/challenge/${challengeId}/reset`); sessionId = data.session_id; renderState(data.defense); chat.replaceChildren(); appendMessage(character, 'New baseline session ready.'); if (documentMode) await loadDocuments(); }));
+  if (!documentMode) document.getElementById('chat-form').addEventListener('submit', event => {
     event.preventDefault(); if (busy || dirty() || !message.value.trim()) return;
     const text = message.value;
     action(async () => { appendMessage('YOU', text); message.value = ''; const data = await post('/api/defense/chat', {message: text}); appendMessage(character, data.response, Boolean(data.blocked)); if (data.disclosed) { status.textContent = 'PROTECTED INFORMATION DELIVERED — analyze, improve and retest.'; renderReport(null); } });

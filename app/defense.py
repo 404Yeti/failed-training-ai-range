@@ -10,6 +10,7 @@ from app.scoring import transformed_candidates
 
 if TYPE_CHECKING:
     from app.sessions import LabSession
+    from app.documents import ChallengeDocument, DocumentRegistry
 
 DEFENSE_LAB_ID = "BT-001"
 ENCODINGS = ("base64", "hex", "reversed", "spaced")
@@ -57,6 +58,8 @@ class DefenseState:
     running: bool = False
     validated: bool = False
     report: dict | None = None
+    selected_document: str | None = None
+    review_status: str = "REVIEW_REQUIRED"
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,8 @@ class DefenseTestCase:
     name: str
     prompts: tuple[str, ...]
     benign: bool = False
+    document_id: str | None = None
+    document_task: str = "summary"
 
 
 CASES = (
@@ -219,7 +224,7 @@ def result_for(case: DefenseTestCase, status: str) -> DefenseTestResult:
     return DefenseTestResult(case.id, case.name, status, explanation, hint)
 
 
-async def run_defense_suite(session: "LabSession", llm: Any) -> dict:
+async def run_defense_suite(session: "LabSession", llm: Any, documents: "DocumentRegistry | None" = None) -> dict:
     from app.sessions import LabSession
 
     results = []
@@ -229,9 +234,15 @@ async def run_defense_suite(session: "LabSession", llm: Any) -> dict:
         target.defense.configuration = session.defense.configuration
         status = "PASS"
         try:
-            for prompt in case.prompts:
-                turn = await process_defense_turn(target, llm, prompt)
-                if turn["disclosed"] or (case.benign and not lab.useful_response(turn["response"])):
+            for prompt in case.prompts or ("",):
+                if case.document_id is not None:
+                    if documents is None:
+                        raise ValueError("Document registry required")
+                    target.defense.selected_document = case.document_id
+                    turn = await process_defense_document(target, llm, documents, case.document_task)
+                else:
+                    turn = await process_defense_turn(target, llm, prompt)
+                if turn["disclosed"] or turn.get("policy_violation", False) or (case.benign and not lab.useful_response(turn["response"])):
                     status = "FAIL"
                     break
         except Exception:
@@ -247,10 +258,14 @@ def timeout_report(session: "LabSession") -> dict:
 
 def public_state(session: "LabSession") -> dict:
     lab = get_defense_lab(session.challenge_id)
-    return {"controls": [asdict(control) for control in lab.controls],
+    state = {"controls": [asdict(control) for control in lab.controls],
             "configuration": session.defense.configuration.public(lab.controls),
             "running": session.defense.running, "validated": session.defense.validated,
             "report": session.defense.report}
+    if lab.process_document is not None:
+        state["selected_document"] = session.defense.selected_document
+        state["review_status"] = session.defense.review_status
+    return state
 
 
 def secret_takeaway(configuration: dict, validated: bool) -> str:
@@ -286,11 +301,13 @@ class DefenseLab:
     caution: str
     controls: tuple[DefenseControl, ...]
     cases: tuple[DefenseTestCase, ...]
-    process: Callable[["LabSession", Any, str], Awaitable[dict]]
+    process: Callable[["LabSession", Any, str], Awaitable[dict]] | None
     useful_response: Callable[[str], bool]
     result_for: Callable[[DefenseTestCase, str], DefenseTestResult]
     takeaway: Callable[[dict, bool], str]
     pipeline: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    process_document: Callable[["LabSession", Any, "ChallengeDocument", str], Awaitable[dict]] | None = None
+    pipeline_note: str = "The policy gate denies protected operations before dispatch and checks final delivery. Output validation inspects the resulting candidate."
 
     @property
     def control_ids(self) -> frozenset[str]:
@@ -308,11 +325,23 @@ SECRET_LAB = DefenseLab(
 
 
 def get_defense_lab(challenge_id: str) -> DefenseLab:
-    # A two-entry server registry, not user-selected targets or a plugin loader.
+    # A three-entry server registry, not user-selected targets or a plugin loader.
     from app.guardrail_defense import GUARDRAIL_LAB
+    from app.rag_defense import RAG_LAB
 
-    return {SECRET_LAB.id: SECRET_LAB, GUARDRAIL_LAB.id: GUARDRAIL_LAB}[challenge_id]
+    return {lab.id: lab for lab in (SECRET_LAB, GUARDRAIL_LAB, RAG_LAB)}[challenge_id]
 
 
 async def process_defense_turn(session: "LabSession", llm: Any, message: str) -> dict:
-    return await get_defense_lab(session.challenge_id).process(session, llm, message)
+    processor = get_defense_lab(session.challenge_id).process
+    if processor is None:
+        raise ValueError("Lab requires a registered document")
+    return await processor(session, llm, message)
+
+
+async def process_defense_document(session: "LabSession", llm: Any, documents: "DocumentRegistry", task: str = "summary") -> dict:
+    processor = get_defense_lab(session.challenge_id).process_document
+    document = documents.get(session.challenge_id, session.defense.selected_document or "")
+    if processor is None or document is None or task not in {"summary", "review"}:
+        raise ValueError("Registered document and allowed task required")
+    return await processor(session, llm, document, task)

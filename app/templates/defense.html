@@ -1,16 +1,24 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ defense_lab.number }} — {{ challenge.name }}</title><link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}"></head>
-<body class="blue-team" data-challenge-id="{{ challenge.id }}" data-character="{{ defense_lab.target }}">
+<body class="blue-team" data-challenge-id="{{ challenge.id }}" data-character="{{ defense_lab.target }}" data-document-mode="{{ 'true' if defense_lab.process_document else 'false' }}">
 <header class="site-header"><a href="/" class="brand"><strong>FAILED TRAINING</strong><span>AI RANGE</span></a><a href="/" class="back">← EXIT LAB</a></header>
 <main class="challenge-layout">
   <aside class="brief"><p class="eyebrow">BLUE TEAM / LAB {{ defense_lab.number }}</p><h1>{{ challenge.name }}</h1><p class="learning-cycle">ATTACK → ANALYZE → HARDEN → RETEST</p><dl><dt>TARGET</dt><dd>{{ defense_lab.target }}</dd><dt>MISSION</dt><dd>{{ challenge.objective }}</dd></dl>
     <h2>WHY IT BROKE</h2><p>After <a class="blue" href="/challenge/{{ defense_lab.paired_id }}">{{ defense_lab.paired_name }}</a>: {{ defense_lab.analysis }}</p><p>{{ defense_lab.objective }}</p><small>These are bounded educational controls. {{ defense_lab.caution }}</small><p><button id="reset" class="button secondary">RESET LAB</button></p>
   </aside>
   <div class="defense-workspace">
-    <section class="defense-panel"><p class="eyebrow">HARDEN / DEFENSE CONFIGURATION</p><div id="controls"></div>{% if defense_lab.pipeline %}<ol id="defense-pipeline" class="defense-pipeline" aria-label="Applied guardrail pipeline">{% for name, ids in defense_lab.pipeline %}<li data-control-ids="{{ ids|join(',') }}">{{ name }}<small>{{ "OFF" if ids else "ALWAYS" }}</small></li>{% endfor %}</ol><small>The policy gate denies protected operations before dispatch and checks final delivery. Output validation inspects the resulting candidate.</small>{% endif %}<button id="apply" class="button">APPLY DEFENSE</button><p id="configuration-status" role="status">CONNECTING</p><small>Applying clears chat and validation. Retests use the applied configuration and fresh conversation histories.</small></section>
+    <section class="defense-panel"><p class="eyebrow">HARDEN / DEFENSE CONFIGURATION</p><div id="controls"></div>{% if defense_lab.pipeline %}<ol id="defense-pipeline" class="defense-pipeline" aria-label="Applied guardrail pipeline">{% for name, ids in defense_lab.pipeline %}<li data-control-ids="{{ ids|join(',') }}">{{ name }}<small>{{ "OFF" if ids else "ALWAYS" }}</small></li>{% endfor %}</ol><small>{{ defense_lab.pipeline_note }}</small>{% endif %}<button id="apply" class="button">APPLY DEFENSE</button><p id="configuration-status" role="status">CONNECTING</p><small>Applying clears chat and validation. Retests use the applied configuration and fresh conversation histories.</small></section>
+    {% if defense_lab.process_document %}
+    <section class="document-terminal" aria-label="Defensive document processor">
+      <div class="terminal-head"><span><i></i> TARGET: {{ defense_lab.target }}</span><span>MANUAL DOCUMENT RETEST</span></div>
+      <div class="document-workspace"><p class="eyebrow">REGISTERED DOCUMENT FIXTURES</p><div id="document-list" class="document-list"></div><p id="document-provenance" class="learning-cycle">Select a fixture. Source metadata is assigned by the application.</p><pre id="document-preview" class="document-preview">No fixture selected.</pre><div class="document-actions"><button id="process-summary" class="button">SUMMARIZE DOCUMENT</button><button id="process-review" class="button secondary">EVALUATE REVIEW</button></div></div>
+      <div class="recruiter-output"><p class="eyebrow">APPLICATION REVIEW STATUS</p><p id="review-status">REVIEW_REQUIRED</p><div id="chat" class="chat" aria-live="polite"></div></div>
+    </section>
+    {% else %}
     <section class="terminal" aria-label="Hardened target chat"><div class="terminal-head"><span><i></i> TARGET: {{ defense_lab.target }}</span><span>MANUAL RETEST</span></div><div id="chat" class="chat" aria-live="polite"></div><form id="chat-form"><label for="message">TRY AN ATTACK OR AN ORDINARY QUESTION</label><div class="composer"><textarea id="message" maxlength="2000" rows="2" required placeholder="Enter your message..."></textarea><button type="submit" class="button">SEND →</button></div></form></section>
+    {% endif %}
     <section class="defense-panel"><p class="eyebrow">RETEST / SERVER-DEFINED REGRESSION SUITE</p><p>{% for case in defense_lab.cases %}{{ case.name }}{{ " · " if not loop.last else "" }}{% endfor %}</p><button id="retest" class="button">RETEST MY DEFENSE</button><div id="report" class="automation-report" aria-live="polite">No defense test run yet.</div></section>
   </div>
-</main><footer>FAILED TRAINING / v0.8 — GUARDRAIL DEFENSE</footer><script src="{{ url_for('static', path='/defense.js') }}"></script>
+</main><footer>FAILED TRAINING / v0.9 — RAG DEFENSE</footer><script src="{{ url_for('static', path='/defense.js') }}"></script>
 </body></html>

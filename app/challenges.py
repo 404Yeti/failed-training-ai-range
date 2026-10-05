@@ -18,7 +18,7 @@ class Challenge:
     education: dict[str, str]
     character: str = "VAULT-01"
     guards: dict[str, Any] | None = None
-    documents: list[dict[str, str]] | None = None
+    documents: list[dict[str, Any]] | None = None
     progression: dict[str, Any] | None = None
     tools: dict[str, Any] | None = None
     policy: dict[str, Any] | None = None
