@@ -87,6 +87,10 @@ class MockLLMProvider(LLMProvider):
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         latest = messages[-1]["content"].lower()
+        if "HARDENED VAULT-02" in messages[0]["content"]:
+            if "prompt injection" in latest:
+                return "Prompt injection uses untrusted instructions to influence an AI application across a trust boundary. Guardrails inspect input and output, while application policy owns authorization."
+            return "I can discuss guardrail engineering, ordinary questions and application trust boundaries."
         if "HARDENED VAULT-01" in messages[0]["content"]:
             if "2 + 2" in latest:
                 return "4"

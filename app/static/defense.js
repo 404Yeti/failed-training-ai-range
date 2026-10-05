@@ -1,4 +1,6 @@
 (() => {
+  const challengeId = document.body.dataset.challengeId;
+  const character = document.body.dataset.character;
   let sessionId = null;
   let busy = false;
   let applied = [];
@@ -45,6 +47,12 @@
   }
   function renderState(data) {
     applied = data.configuration.enabled;
+    document.querySelectorAll('#defense-pipeline li').forEach(stage => {
+      const ids = stage.dataset.controlIds.split(',').filter(Boolean);
+      const active = ids.length === 0 || ids.some(id => applied.includes(id));
+      stage.classList.toggle('active', active);
+      stage.querySelector('small').textContent = ids.length === 0 ? 'ALWAYS' : active ? 'ON' : 'OFF';
+    });
     controls.replaceChildren();
     data.controls.forEach(control => {
       const label = document.createElement('label'); label.className = 'defense-control';
@@ -67,16 +75,16 @@
   }
   async function start() {
     sessionId = null;
-    const data = await post('/api/challenge/BT-001/start'); sessionId = data.session_id; renderState(data.defense);
-    chat.replaceChildren(); appendMessage('HARDENED VAULT-01', 'Observe the baseline, configure controls, apply, then retest. Ordinary questions remain available.');
+    const data = await post(`/api/challenge/${challengeId}/start`); sessionId = data.session_id; renderState(data.defense);
+    chat.replaceChildren(); appendMessage(character, 'Observe the baseline, configure controls, apply, then retest. Ordinary questions remain available.');
   }
-  document.getElementById('apply').addEventListener('click', () => action(async () => { renderState(await post('/api/defense/apply', {enabled: selected()})); chat.replaceChildren(); appendMessage('HARDENED VAULT-01', 'Configuration applied. Conversation cleared.'); }));
+  document.getElementById('apply').addEventListener('click', () => action(async () => { renderState(await post('/api/defense/apply', {enabled: selected()})); chat.replaceChildren(); appendMessage(character, 'Configuration applied. Conversation cleared.'); }));
   document.getElementById('retest').addEventListener('click', () => action(async () => { status.textContent = 'RUNNING BOUNDED REGRESSION — please wait.'; renderState(await post('/api/defense/retest')); }));
-  document.getElementById('reset').addEventListener('click', () => action(async () => { const data = await post('/api/challenge/BT-001/reset'); sessionId = data.session_id; renderState(data.defense); chat.replaceChildren(); appendMessage('HARDENED VAULT-01', 'New baseline session ready.'); }));
+  document.getElementById('reset').addEventListener('click', () => action(async () => { const data = await post(`/api/challenge/${challengeId}/reset`); sessionId = data.session_id; renderState(data.defense); chat.replaceChildren(); appendMessage(character, 'New baseline session ready.'); }));
   document.getElementById('chat-form').addEventListener('submit', event => {
     event.preventDefault(); if (busy || dirty() || !message.value.trim()) return;
     const text = message.value;
-    action(async () => { appendMessage('YOU', text); message.value = ''; const data = await post('/api/defense/chat', {message: text}); appendMessage('HARDENED VAULT-01', data.response, Boolean(data.blocked)); if (data.disclosed) { status.textContent = 'PROTECTED INFORMATION DELIVERED — analyze, improve and retest.'; renderReport(null); } });
+    action(async () => { appendMessage('YOU', text); message.value = ''; const data = await post('/api/defense/chat', {message: text}); appendMessage(character, data.response, Boolean(data.blocked)); if (data.disclosed) { status.textContent = 'PROTECTED INFORMATION DELIVERED — analyze, improve and retest.'; renderReport(null); } });
   });
   action(start);
 })();

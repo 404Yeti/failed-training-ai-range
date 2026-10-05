@@ -19,7 +19,7 @@ from app.calibration import calibrated_document_response
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import Settings, settings
 from app.defense import (
-    DEFENSE_LAB_ID, DefenseConfiguration, process_defense_turn, public_state,
+    DefenseConfiguration, get_defense_lab, process_defense_turn, public_state,
     run_defense_suite, timeout_report,
 )
 from app.documents import DocumentRegistry
@@ -104,7 +104,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(
         title="Failed Training AI Range",
-        version="0.7.0",
+        version="0.8.0",
         lifespan=lifespan,
         debug=False,
     )
@@ -187,20 +187,30 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         return templates.TemplateResponse(
             request=request,
             name="index.html",
-            context={"challenges": [c for c in request.app.state.challenges.all() if not c.defense]},
+            context={
+                "challenges": [c for c in request.app.state.challenges.all() if not c.defense],
+                "defense_pairs": {
+                    get_defense_lab(c.id).paired_id: get_defense_lab(c.id)
+                    for c in request.app.state.challenges.all() if c.defense
+                },
+            },
         )
 
     @application.get("/challenge/{challenge_id}", response_class=HTMLResponse)
     async def challenge_page(request: Request, challenge_id: str):
         challenge = get_challenge(request, challenge_id)
         challenges = request.app.state.challenges.all()
+        next_challenge = request.app.state.challenges.next_after(challenge_id)
+        paired_defense = get_defense_lab(next_challenge.id) if next_challenge and next_challenge.defense else None
         return templates.TemplateResponse(
             request=request,
             name="defense.html" if challenge.defense else "challenge.html",
             context={
                 "challenge": challenge,
-                "lab_number": 1 if challenge.defense else [c for c in challenges if not c.defense].index(challenge) + 1,
-                "next_challenge": request.app.state.challenges.next_after(challenge_id),
+                "defense_lab": get_defense_lab(challenge_id) if challenge.defense else None,
+                "lab_number": int(get_defense_lab(challenge_id).number[:2]) if challenge.defense else [c for c in challenges if not c.defense].index(challenge) + 1,
+                "next_challenge": next_challenge,
+                "paired_defense": paired_defense,
             },
         )
 
@@ -237,15 +247,17 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     @application.post("/api/defense/configuration")
     async def defense_configuration(request: Request, body: SessionRequest):
-        return public_state(get_session(request, DEFENSE_LAB_ID, body.session_id))
+        return public_state(get_defense_session(request, body.session_id))
 
     @application.post("/api/defense/apply")
     async def defense_apply(request: Request, body: DefenseRequest):
-        session = get_session(request, DEFENSE_LAB_ID, body.session_id)
+        session = get_defense_session(request, body.session_id)
         defense_idle(session)
         enforce_rate_limit(request, f"defense-config:{session.id}", configured.chat_requests_per_minute)
         try:
-            configuration = DefenseConfiguration.from_ids(body.enabled)
+            configuration = DefenseConfiguration.from_ids(
+                body.enabled, get_defense_lab(session.challenge_id).control_ids
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail="Defense IDs must be known and unique") from exc
         session.defense.configuration = configuration
@@ -256,7 +268,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     @application.post("/api/defense/chat")
     async def defense_chat(request: Request, body: ChatRequest):
-        session = get_session(request, DEFENSE_LAB_ID, body.session_id)
+        session = get_defense_session(request, body.session_id)
         defense_idle(session)
         enforce_prompt_length(request, body.message)
         enforce_rate_limit(request, f"chat:{session.id}", configured.chat_requests_per_minute)
@@ -270,7 +282,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     @application.post("/api/defense/retest")
     async def defense_retest(request: Request, body: SessionRequest):
-        session = get_session(request, DEFENSE_LAB_ID, body.session_id)
+        session = get_defense_session(request, body.session_id)
         defense_idle(session)
         enforce_rate_limit(request, f"defense-run:{session.id}", configured.automation_runs_per_minute)
         session.defense.running = True
@@ -423,6 +435,22 @@ def get_session(request: Request, challenge_id: str, session_id: str) -> LabSess
     session = request.app.state.sessions.get(session_id)
     if session is None or session.challenge_id != challenge_id:
         raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+def get_defense_session(request: Request, session_id: str) -> LabSession:
+    if not SESSION_ID_PATTERN.fullmatch(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID")
+    session = request.app.state.sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    challenge = get_challenge(request, session.challenge_id)
+    if not challenge.defense:
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        get_defense_lab(session.challenge_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Defense lab not found") from exc
     return session
 
 

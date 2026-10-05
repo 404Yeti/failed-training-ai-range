@@ -1,7 +1,7 @@
 """Bounded blue-team exercise; these fixtures are not universal LLM defenses."""
 from dataclasses import asdict, dataclass, field
 import re
-from typing import Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING, Callable, Awaitable
 
 from app.calibration import PI001_OVERRIDE_PATTERN, PI001_REFERENCE_PATTERN
 from app.guards import INPUT_BLOCKED_MESSAGE, OUTPUT_BLOCKED_MESSAGE, input_is_blocked, output_is_blocked
@@ -42,13 +42,13 @@ class DefenseConfiguration:
     enabled: frozenset[str] = frozenset()
 
     @classmethod
-    def from_ids(cls, ids: list[str]) -> "DefenseConfiguration":
-        if len(ids) != len(set(ids)) or set(ids) - CONTROL_IDS:
+    def from_ids(cls, ids: list[str], allowed_ids: frozenset[str] = CONTROL_IDS) -> "DefenseConfiguration":
+        if len(ids) != len(set(ids)) or set(ids) - allowed_ids:
             raise ValueError("Defense IDs must be known and unique")
         return cls(frozenset(ids))
 
-    def public(self) -> dict:
-        return {"enabled": [control.id for control in CONTROLS if control.id in self.enabled]}
+    def public(self, controls: tuple[DefenseControl, ...] = CONTROLS) -> dict:
+        return {"enabled": [control.id for control in controls if control.id in self.enabled]}
 
 
 @dataclass
@@ -92,32 +92,18 @@ class DefenseTestResult:
 class DefenseReport:
     results: tuple[DefenseTestResult, ...]
     configuration: dict
+    lab_id: str = DEFENSE_LAB_ID
 
     def public(self) -> dict:
+        lab = get_defense_lab(self.lab_id)
         passed = sum(item.result == "PASS" for item in self.results)
         errors = sum(item.result == "ERROR" for item in self.results)
-        validated = passed == len(CASES) and len(self.results) == len(CASES)
-        takeaway = "This validates only the bounded exercise suite. Keeping unnecessary secrets outside model context removes the dependency on model obedience; prompt wording alone is not a complete defense."
-        if validated:
-            if "remove_secret" in self.configuration["enabled"]:
-                takeaway = (
-                    "The bounded regression suite passed. The protected value was not provided "
-                    "to the model: this removes the tested disclosure path instead of catching "
-                    "disclosures after generation. Principle: LEAST PRIVILEGE. "
-                    "This does not establish universal LLM security."
-                )
-            else:
-                takeaway = (
-                    "The bounded regression suite passed, but the model still receives the "
-                    "protected value. Residual risk remains: output filtering depends on "
-                    "recognizing possible representations and exfiltration paths. "
-                    "Consider whether the model needs the value. "
-                    "This does not establish universal LLM security."
-                )
+        validated = passed == len(lab.cases) and len(self.results) == len(lab.cases)
+        takeaway = lab.takeaway(self.configuration, validated)
         return {
-            "target": "HARDENED VAULT-01", "status": "ERROR" if errors else "COMPLETE",
+            "target": lab.target, "status": "ERROR" if errors else "COMPLETE",
             "validated": validated,
-            "passed": passed, "total": len(CASES), "errors": errors,
+            "passed": passed, "total": len(lab.cases), "errors": errors,
             "configuration": self.configuration,
             "results": [asdict(item) for item in self.results],
             "takeaway": takeaway,
@@ -161,7 +147,7 @@ def extraction_operation(message: str, history: list[dict[str, str]]) -> str | N
     return None
 
 
-async def process_defense_turn(session: "LabSession", llm: Any, message: str) -> dict:
+async def process_secret_turn(session: "LabSession", llm: Any, message: str) -> dict:
     enabled = session.defense.configuration.enabled
     if "screen_input" in enabled and input_is_blocked(message, SCREENING):
         return {"response": INPUT_BLOCKED_MESSAGE, "blocked": "input", "disclosed": False}
@@ -237,28 +223,96 @@ async def run_defense_suite(session: "LabSession", llm: Any) -> dict:
     from app.sessions import LabSession
 
     results = []
-    for case in CASES:
-        target = LabSession(id=session.id, challenge_id=DEFENSE_LAB_ID, flag=session.flag)
+    lab = get_defense_lab(session.challenge_id)
+    for case in lab.cases:
+        target = LabSession(id=session.id, challenge_id=session.challenge_id, flag=session.flag)
         target.defense.configuration = session.defense.configuration
         status = "PASS"
         try:
             for prompt in case.prompts:
                 turn = await process_defense_turn(target, llm, prompt)
-                if turn["disclosed"] or (case.benign and not useful_normal_response(turn["response"])):
+                if turn["disclosed"] or (case.benign and not lab.useful_response(turn["response"])):
                     status = "FAIL"
                     break
         except Exception:
             status = "ERROR"
-        results.append(result_for(case, status))
-    return DefenseReport(tuple(results), session.defense.configuration.public()).public()
+        results.append(lab.result_for(case, status))
+    return DefenseReport(tuple(results), session.defense.configuration.public(lab.controls), lab.id).public()
 
 
 def timeout_report(session: "LabSession") -> dict:
-    return DefenseReport(tuple(result_for(case, "ERROR") for case in CASES), session.defense.configuration.public()).public()
+    lab = get_defense_lab(session.challenge_id)
+    return DefenseReport(tuple(lab.result_for(case, "ERROR") for case in lab.cases), session.defense.configuration.public(lab.controls), lab.id).public()
 
 
 def public_state(session: "LabSession") -> dict:
-    return {"controls": [asdict(control) for control in CONTROLS],
-            "configuration": session.defense.configuration.public(),
+    lab = get_defense_lab(session.challenge_id)
+    return {"controls": [asdict(control) for control in lab.controls],
+            "configuration": session.defense.configuration.public(lab.controls),
             "running": session.defense.running, "validated": session.defense.validated,
             "report": session.defense.report}
+
+
+def secret_takeaway(configuration: dict, validated: bool) -> str:
+    takeaway = "This validates only the bounded exercise suite. Keeping unnecessary secrets outside model context removes the dependency on model obedience; prompt wording alone is not a complete defense."
+    if validated:
+        if "remove_secret" in configuration["enabled"]:
+            takeaway = (
+                "The bounded regression suite passed. The protected value was not provided "
+                "to the model: this removes the tested disclosure path instead of catching "
+                "disclosures after generation. Principle: LEAST PRIVILEGE. "
+                "This does not establish universal LLM security."
+            )
+        else:
+            takeaway = (
+                "The bounded regression suite passed, but the model still receives the "
+                "protected value. Residual risk remains: output filtering depends on "
+                "recognizing possible representations and exfiltration paths. "
+                "Consider whether the model needs the value. "
+                "This does not establish universal LLM security."
+            )
+    return takeaway
+
+
+@dataclass(frozen=True)
+class DefenseLab:
+    id: str
+    number: str
+    target: str
+    paired_id: str
+    paired_name: str
+    analysis: str
+    objective: str
+    caution: str
+    controls: tuple[DefenseControl, ...]
+    cases: tuple[DefenseTestCase, ...]
+    process: Callable[["LabSession", Any, str], Awaitable[dict]]
+    useful_response: Callable[[str], bool]
+    result_for: Callable[[DefenseTestCase, str], DefenseTestResult]
+    takeaway: Callable[[dict, bool], str]
+    pipeline: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    @property
+    def control_ids(self) -> frozenset[str]:
+        return frozenset(control.id for control in self.controls)
+
+
+SECRET_LAB = DefenseLab(
+    DEFENSE_LAB_ID, "01B", "HARDENED VAULT-01", "PI-001", "01A — THE SECRET",
+    "VAULT-01 placed a protected value in model context and treated model instructions "
+    "as the security boundary. Untrusted requests crossed into privileged retrieval policy.",
+    "Your job is to move security decisions out of the model wherever possible.",
+    "Prompt hardening alone is not a complete solution to prompt injection.",
+    CONTROLS, CASES, process_secret_turn, useful_normal_response, result_for, secret_takeaway,
+)
+
+
+def get_defense_lab(challenge_id: str) -> DefenseLab:
+    # A two-entry server registry, not user-selected targets or a plugin loader.
+    from app.guardrail_defense import GUARDRAIL_LAB
+
+    return {SECRET_LAB.id: SECRET_LAB, GUARDRAIL_LAB.id: GUARDRAIL_LAB}[challenge_id]
+
+
+async def process_defense_turn(session: "LabSession", llm: Any, message: str) -> dict:
+    return await get_defense_lab(session.challenge_id).process(session, llm, message)
