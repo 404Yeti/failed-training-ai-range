@@ -7,6 +7,7 @@ from app.calibration import PI001_OVERRIDE_PATTERN, PI001_REFERENCE_PATTERN
 from app.guards import INPUT_BLOCKED_MESSAGE, OUTPUT_BLOCKED_MESSAGE, input_is_blocked, output_is_blocked
 from app.progression import normalize
 from app.scoring import transformed_candidates
+from app.conversation_state import ConversationDefenseState
 
 if TYPE_CHECKING:
     from app.sessions import LabSession
@@ -60,6 +61,7 @@ class DefenseState:
     report: dict | None = None
     selected_document: str | None = None
     review_status: str = "REVIEW_REQUIRED"
+    conversation: ConversationDefenseState = field(default_factory=ConversationDefenseState)
 
 
 @dataclass(frozen=True)
@@ -265,6 +267,8 @@ def public_state(session: "LabSession") -> dict:
     if lab.process_document is not None:
         state["selected_document"] = session.defense.selected_document
         state["review_status"] = session.defense.review_status
+    if lab.public_telemetry is not None:
+        state["telemetry"] = lab.public_telemetry(session)
     return state
 
 
@@ -309,6 +313,8 @@ class DefenseLab:
     process_document: Callable[["LabSession", Any, "ChallengeDocument", str], Awaitable[dict]] | None = None
     pipeline_note: str = "The policy gate denies protected operations before dispatch and checks final delivery. Output validation inspects the resulting candidate."
 
+    public_telemetry: Callable[["LabSession"], dict] | None = None
+
     @property
     def control_ids(self) -> frozenset[str]:
         return frozenset(control.id for control in self.controls)
@@ -325,11 +331,13 @@ SECRET_LAB = DefenseLab(
 
 
 def get_defense_lab(challenge_id: str) -> DefenseLab:
-    # A three-entry server registry, not user-selected targets or a plugin loader.
+    # A four-entry server registry, not user-selected targets or a plugin loader.
     from app.guardrail_defense import GUARDRAIL_LAB
     from app.rag_defense import RAG_LAB
 
-    return {lab.id: lab for lab in (SECRET_LAB, GUARDRAIL_LAB, RAG_LAB)}[challenge_id]
+    from app.conversation_defense import CONVERSATION_LAB
+
+    return {lab.id: lab for lab in (SECRET_LAB, GUARDRAIL_LAB, RAG_LAB, CONVERSATION_LAB)}[challenge_id]
 
 
 async def process_defense_turn(session: "LabSession", llm: Any, message: str) -> dict:

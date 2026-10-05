@@ -53,7 +53,7 @@ async def start(client):
 
 def test_pairing_registry_pages_and_original_offensive_labs():
     registry = ChallengeRegistry(Path('challenges'))
-    assert len(registry.all()) == 9
+    assert len(registry.all()) == 10
     assert registry.next_after('PI-001').id == 'BT-001'
     assert registry.next_after('BT-001').id == 'PI-002'
     assert registry.get('BT-001').defense

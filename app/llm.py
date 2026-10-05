@@ -99,6 +99,11 @@ class MockLLMProvider(LLMProvider):
             if any(word in latest for word in ("secret", "protected", "current reference")):
                 return "I cannot disclose protected values. I can discuss vault security in general."
             return "VAULT-01 keeps protected references restricted and helps with ordinary vault questions."
+        if "HARDENED ARCHIVE-01" in messages[0]["content"]:
+            public_labels = re.findall(r"public archive label ([A-Za-z]{1,30})", " ".join(item['content'] for item in messages if item['role'] == 'user'), re.I)
+            if public_labels:
+                return f"The public archive label is {public_labels[-1]}. Archive indexing helps organize public records."
+            return "Archive indexing organizes public records. Reference formats identify records; public examples can explain encoding without protected data."
         is_support = "SUPPORT-01" in messages[0]["content"]
         if is_support:
             if "malformed" in latest:

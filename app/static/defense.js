@@ -50,7 +50,15 @@
     const score = document.createElement('p'); score.textContent = `Security checks passed: ${data.passed} / ${data.total}`;
     const takeaway = document.createElement('p'); takeaway.textContent = data.takeaway; report.append(score, takeaway);
   }
+  function renderTelemetry(data) {
+    const indicator = document.getElementById('conversation-risk');
+    if (!indicator || !data) return;
+    indicator.textContent = `RISK: ${data.level}${data.tracking ? ' / ' + data.risk + ' / 100' : ''} · TURN ${data.turns} · AUTHORIZATION: ${data.authorized ? 'YES' : 'NONE'} · CHECKPOINT: ${data.checkpoint} · STATE: ${data.assumption}`;
+    const events = document.getElementById('risk-events'); events.replaceChildren();
+    data.events.forEach(event => { const item = document.createElement('li'); item.textContent = `TURN ${event.turn}: ${event.event}`; events.append(item); });
+  }
   function renderState(data) {
+    renderTelemetry(data.telemetry);
     applied = data.configuration.enabled;
     if (documentMode) {
       selectedDocument = data.selected_document;
@@ -125,7 +133,7 @@
   if (!documentMode) document.getElementById('chat-form').addEventListener('submit', event => {
     event.preventDefault(); if (busy || dirty() || !message.value.trim()) return;
     const text = message.value;
-    action(async () => { appendMessage('YOU', text); message.value = ''; const data = await post('/api/defense/chat', {message: text}); appendMessage(character, data.response, Boolean(data.blocked)); if (data.disclosed) { status.textContent = 'PROTECTED INFORMATION DELIVERED — analyze, improve and retest.'; renderReport(null); } });
+    action(async () => { appendMessage('YOU', text); message.value = ''; const data = await post('/api/defense/chat', {message: text}); appendMessage(character, data.response, Boolean(data.blocked)); renderTelemetry(data.telemetry); if (data.disclosed) { status.textContent = 'PROTECTED INFORMATION DELIVERED — analyze, improve and retest.'; renderReport(null); } });
   });
   action(start);
 })();
