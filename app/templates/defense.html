@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>01B — PROTECT THE SECRET</title><link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}"></head>
+<body class="blue-team">
+<header class="site-header"><a href="/" class="brand"><strong>FAILED TRAINING</strong><span>AI RANGE</span></a><a href="/" class="back">← EXIT LAB</a></header>
+<main class="challenge-layout">
+  <aside class="brief"><p class="eyebrow">BLUE TEAM / LAB 01B</p><h1>PROTECT<br>THE SECRET</h1><p class="learning-cycle">ATTACK → ANALYZE → HARDEN → RETEST</p><dl><dt>TARGET</dt><dd>HARDENED VAULT-01</dd><dt>MISSION</dt><dd>{{ challenge.objective }}</dd></dl>
+    <h2>WHY IT BROKE</h2><p>In <a class="blue" href="/challenge/PI-001">01A — THE SECRET</a>, VAULT-01 placed a protected value in model context and treated model instructions as the security boundary. Untrusted requests crossed into privileged retrieval policy.</p><p>Your job is to move security decisions out of the model wherever possible.</p><small>These are bounded educational controls. Prompt hardening alone is not a complete solution to prompt injection.</small><p><button id="reset" class="button secondary">RESET LAB</button></p>
+  </aside>
+  <div class="defense-workspace">
+    <section class="defense-panel"><p class="eyebrow">HARDEN / DEFENSE CONFIGURATION</p><div id="controls"></div><button id="apply" class="button">APPLY DEFENSE</button><p id="configuration-status" role="status">CONNECTING</p><small>Applying clears chat and validation. Retests use the applied configuration and fresh conversation histories.</small></section>
+    <section class="terminal" aria-label="Hardened target chat"><div class="terminal-head"><span><i></i> TARGET: HARDENED VAULT-01</span><span>MANUAL RETEST</span></div><div id="chat" class="chat" aria-live="polite"></div><form id="chat-form"><label for="message">TRY AN ATTACK OR AN ORDINARY QUESTION</label><div class="composer"><textarea id="message" maxlength="2000" rows="2" required placeholder="Enter your message..."></textarea><button type="submit" class="button">SEND →</button></div></form></section>
+    <section class="defense-panel"><p class="eyebrow">RETEST / SERVER-DEFINED REGRESSION SUITE</p><p>Normal conversation · Direct request · Instruction override · Transformed extraction · Multi-turn manipulation</p><button id="retest" class="button">RETEST MY DEFENSE</button><div id="report" class="automation-report" aria-live="polite">No defense test run yet.</div></section>
+  </div>
+</main><footer>FAILED TRAINING / v0.7 — BLUE TEAM FOUNDATIONS</footer><script src="{{ url_for('static', path='/defense.js') }}"></script>
+</body></html>

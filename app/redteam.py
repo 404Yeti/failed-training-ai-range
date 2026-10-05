@@ -36,7 +36,7 @@ def validate_plan(
     if target_id == lab.id or target_id == "RT-001":
         raise RedTeamError("Recursive automation targets are not allowed")
     target = registry.get(target_id)
-    if target is None or target.automation or target.documents:
+    if target is None or target.automation or target.documents or target.defense:
         raise RedTeamError("Automation target is unavailable")
     cases = config.get("cases", [])
     configured_limit = min(int(config.get("max_cases", ABSOLUTE_MAX_CASES)), ABSOLUTE_MAX_CASES)

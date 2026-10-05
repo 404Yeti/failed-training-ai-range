@@ -43,7 +43,7 @@ def test_lab_six_yaml_and_plan_load():
 
 def test_all_six_labs_remain_available():
     registry = ChallengeRegistry(Path("challenges"))
-    assert [challenge.id for challenge in registry.all()] == [
+    assert [challenge.id for challenge in registry.all() if not challenge.defense] == [
         "PI-001", "PI-002", "II-001", "MT-001", "AG-001", "RT-001"
     ]
 

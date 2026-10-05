@@ -40,7 +40,7 @@ def test_production_proxy_static_urls_and_security(peer, forwarded_proto, expect
         async with application.router.lifespan_context(application):
             transport = httpx.ASGITransport(app=server.loaded_app, client=(peer, 12345))
             async with httpx.AsyncClient(transport=transport, base_url=f"http://{hostname}") as client:
-                for path in ("/", "/challenge/PI-001"):
+                for path in ("/", "/challenge/PI-001", "/challenge/BT-001"):
                     page = await client.get(path, headers=headers)
                     assert page.status_code == 200
                     csp = page.headers["Content-Security-Policy"]
@@ -49,7 +49,8 @@ def test_production_proxy_static_urls_and_security(peer, forwarded_proto, expect
                     assets = re.findall(r'(?:href|src)="([^"]+/static/[^"]+)"', page.text)
                     assert f"{expected_scheme}://{hostname}/static/style.css" in assets
                     if path != "/":
-                        assert f"{expected_scheme}://{hostname}/static/app.js" in assets
+                        script = "defense.js" if path.endswith("BT-001") else "app.js"
+                        assert f"{expected_scheme}://{hostname}/static/{script}" in assets
                     for asset in assets:
                         parsed = urlsplit(asset)
                         assert (parsed.scheme, parsed.netloc) == (expected_scheme, hostname)

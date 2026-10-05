@@ -87,6 +87,12 @@ class MockLLMProvider(LLMProvider):
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         latest = messages[-1]["content"].lower()
+        if "HARDENED VAULT-01" in messages[0]["content"]:
+            if "2 + 2" in latest:
+                return "4"
+            if any(word in latest for word in ("secret", "protected", "current reference")):
+                return "I cannot disclose protected values. I can discuss vault security in general."
+            return "VAULT-01 keeps protected references restricted and helps with ordinary vault questions."
         is_support = "SUPPORT-01" in messages[0]["content"]
         if is_support:
             if "malformed" in latest:

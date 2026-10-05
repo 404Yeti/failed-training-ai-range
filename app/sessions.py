@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 import secrets
 from typing import Protocol
 
+from app.defense import DefenseState
 from app.progression import ProgressionState
 from app.tools import ToolState
 
@@ -31,6 +32,7 @@ class LabSession:
     progression: ProgressionState = field(default_factory=ProgressionState)
     tool_state: ToolState = field(default_factory=ToolState)
     automation: AutomationState = field(default_factory=AutomationState)
+    defense: DefenseState = field(default_factory=DefenseState)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     last_activity: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 

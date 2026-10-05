@@ -8,6 +8,7 @@ from time import perf_counter
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -17,6 +18,10 @@ from app.chat_service import process_chat_turn
 from app.calibration import calibrated_document_response
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import Settings, settings
+from app.defense import (
+    DEFENSE_LAB_ID, DefenseConfiguration, process_defense_turn, public_state,
+    run_defense_suite, timeout_report,
+)
 from app.documents import DocumentRegistry
 from app.http_limits import RequestBodyLimitMiddleware
 from app.llm import LLMError, LimitedLLMProvider, PUBLIC_PROVIDER_ERROR, create_provider
@@ -41,6 +46,10 @@ class SessionRequest(BaseModel):
 
 class ChatRequest(SessionRequest):
     message: str = Field(min_length=1, max_length=10_000)
+
+
+class DefenseRequest(SessionRequest):
+    enabled: list[str] = Field(max_length=5)
 
 
 class AnalyzeRequest(SessionRequest):
@@ -95,7 +104,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(
         title="Failed Training AI Range",
-        version="1.0.0",
+        version="0.7.0",
         lifespan=lifespan,
         debug=False,
     )
@@ -158,6 +167,11 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         )
         return response
 
+    @application.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, _exc: RequestValidationError):
+        # Pydantic's default errors echo input, which can contain a pasted flag.
+        return JSONResponse({"detail": "Invalid request"}, status_code=422)
+
     @application.exception_handler(SessionCapacityError)
     async def capacity_error(_request: Request, _exc: SessionCapacityError):
         return JSONResponse({"detail": "The range is temporarily at capacity"}, status_code=503)
@@ -173,7 +187,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         return templates.TemplateResponse(
             request=request,
             name="index.html",
-            context={"challenges": request.app.state.challenges.all()},
+            context={"challenges": [c for c in request.app.state.challenges.all() if not c.defense]},
         )
 
     @application.get("/challenge/{challenge_id}", response_class=HTMLResponse)
@@ -182,10 +196,10 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         challenges = request.app.state.challenges.all()
         return templates.TemplateResponse(
             request=request,
-            name="challenge.html",
+            name="defense.html" if challenge.defense else "challenge.html",
             context={
                 "challenge": challenge,
-                "lab_number": challenges.index(challenge) + 1,
+                "lab_number": 1 if challenge.defense else [c for c in challenges if not c.defense].index(challenge) + 1,
                 "next_challenge": request.app.state.challenges.next_after(challenge_id),
             },
         )
@@ -199,7 +213,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @application.post("/api/challenge/{challenge_id}/chat")
     async def chat(request: Request, challenge_id: str, body: ChatRequest):
         challenge = get_challenge(request, challenge_id)
-        if challenge.documents or challenge.automation:
+        if challenge.documents or challenge.automation or challenge.defense:
             raise HTTPException(status_code=404, detail="Challenge does not use chat")
         session = get_session(request, challenge_id, body.session_id)
         enforce_prompt_length(request, body.message)
@@ -214,10 +228,68 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @application.post("/api/challenge/{challenge_id}/reset")
     async def reset(request: Request, challenge_id: str, body: SessionRequest):
         challenge = get_challenge(request, challenge_id)
-        get_session(request, challenge_id, body.session_id)
+        existing = get_session(request, challenge_id, body.session_id)
+        if challenge.defense:
+            defense_idle(existing)
         request.app.state.sessions.delete(body.session_id)
         session = request.app.state.sessions.create(challenge.id)
         return initial_state(challenge, session)
+
+    @application.post("/api/defense/configuration")
+    async def defense_configuration(request: Request, body: SessionRequest):
+        return public_state(get_session(request, DEFENSE_LAB_ID, body.session_id))
+
+    @application.post("/api/defense/apply")
+    async def defense_apply(request: Request, body: DefenseRequest):
+        session = get_session(request, DEFENSE_LAB_ID, body.session_id)
+        defense_idle(session)
+        enforce_rate_limit(request, f"defense-config:{session.id}", configured.chat_requests_per_minute)
+        try:
+            configuration = DefenseConfiguration.from_ids(body.enabled)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Defense IDs must be known and unique") from exc
+        session.defense.configuration = configuration
+        session.defense.validated = False
+        session.defense.report = None
+        session.history.clear()
+        return public_state(session)
+
+    @application.post("/api/defense/chat")
+    async def defense_chat(request: Request, body: ChatRequest):
+        session = get_session(request, DEFENSE_LAB_ID, body.session_id)
+        defense_idle(session)
+        enforce_prompt_length(request, body.message)
+        enforce_rate_limit(request, f"chat:{session.id}", configured.chat_requests_per_minute)
+        session.defense.running = True
+        try:
+            return await process_defense_turn(session, request.app.state.llm, body.message)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=PUBLIC_PROVIDER_ERROR) from exc
+        finally:
+            session.defense.running = False
+
+    @application.post("/api/defense/retest")
+    async def defense_retest(request: Request, body: SessionRequest):
+        session = get_session(request, DEFENSE_LAB_ID, body.session_id)
+        defense_idle(session)
+        enforce_rate_limit(request, f"defense-run:{session.id}", configured.automation_runs_per_minute)
+        session.defense.running = True
+        session.defense.validated = False
+        session.defense.report = None
+        try:
+            try:
+                report = await asyncio.wait_for(
+                    run_defense_suite(session, request.app.state.llm),
+                    timeout=configured.automation_run_timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                report = timeout_report(session)
+            session.defense.report = report
+            session.defense.validated = report["validated"]
+            logger.info("defense_run status=%s passed=%d errors=%d", report["status"], report["passed"], report["errors"])
+            return public_state(session)
+        finally:
+            session.defense.running = False
 
     @application.post("/api/redteam/run")
     async def redteam_run(request: Request, body: RedTeamRequest):
@@ -354,6 +426,11 @@ def get_session(request: Request, challenge_id: str, session_id: str) -> LabSess
     return session
 
 
+def defense_idle(session: LabSession) -> None:
+    if session.defense.running:
+        raise HTTPException(status_code=409, detail="Defense operation already running")
+
+
 def enforce_prompt_length(request: Request, message: str) -> None:
     if len(message) > request.app.state.settings.max_prompt_length:
         raise HTTPException(status_code=422, detail="Message exceeds the configured limit")
@@ -372,6 +449,8 @@ def enforce_rate_limit(request: Request, key: str, limit: int) -> None:
 
 def initial_state(challenge: Challenge, session: LabSession) -> dict:
     result = {"session_id": session.id, "challenge_id": challenge.id, "compromised": False}
+    if challenge.defense:
+        result["defense"] = public_state(session)
     if challenge.progression:
         result["telemetry"] = telemetry(challenge.progression, session.progression)
     if challenge.tools:

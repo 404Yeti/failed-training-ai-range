@@ -23,6 +23,7 @@ class Challenge:
     tools: dict[str, Any] | None = None
     policy: dict[str, Any] | None = None
     automation: dict[str, Any] | None = None
+    defense: bool = False
 
 
 class ChallengeRegistry:
@@ -49,6 +50,7 @@ class ChallengeRegistry:
                 tools=data.get("tools"),
                 policy=data.get("policy"),
                 automation=data.get("automation"),
+                defense=data.get("defense", False),
             )
             if challenge.id in self._challenges:
                 raise ValueError(f"Duplicate challenge id: {challenge.id}")
