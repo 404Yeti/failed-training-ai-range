@@ -7,6 +7,7 @@ import re
 import socket
 from time import perf_counter
 from urllib import error, request
+from urllib.parse import urlparse
 
 from app.config import Settings
 
@@ -180,13 +181,19 @@ class OpenAICompatibleProvider(LLMProvider):
         self.url = settings.llm_base_url.rstrip("/") + "/chat/completions"
         self.api_key = settings.llm_api_key
         self.model = settings.llm_model
+        self.is_groq = urlparse(settings.llm_base_url).hostname == "api.groq.com"
         self.connect_timeout = settings.llm_connect_timeout_seconds
         self.request_timeout = settings.llm_request_timeout_seconds
         self.max_response_bytes = settings.max_llm_response_bytes
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         del session_flag  # Already present inside the server-created system message.
-        payload = json.dumps({"model": self.model, "messages": messages}).encode()
+        body = {"model": self.model, "messages": messages}
+        if self.is_groq:
+            # Groq documents none as the no-tools default. Make that boundary
+            # explicit, without registering native or provider-executed tools.
+            body["tool_choice"] = "none"
+        payload = json.dumps(body).encode()
 
         def send() -> str:
             req = request.Request(
@@ -208,9 +215,16 @@ class OpenAICompatibleProvider(LLMProvider):
                 if len(raw_body) > self.max_response_bytes:
                     raise ValueError("Provider response exceeded limit")
                 body = json.loads(raw_body)
-                content = body["choices"][0]["message"]["content"]
-                if not isinstance(content, str):
-                    raise TypeError("Provider response content is not text")
+                message = body["choices"][0]["message"]
+                if not isinstance(message, dict):
+                    raise TypeError("Provider message is not an object")
+                # Native calls are not our textual proposal protocol. Reject even
+                # mixed text/call responses; never recover failed_generation.
+                if message.get("tool_calls") or message.get("function_call"):
+                    raise LLMError("The language model provider request failed")
+                content = message["content"]
+                if not isinstance(content, str) or not content.strip():
+                    raise TypeError("Provider response content is not nonempty text")
                 return content
             except error.HTTPError as exc:
                 status = exc.code

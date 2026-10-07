@@ -55,6 +55,10 @@ def parse_tool_request(raw: str, available: list[str]) -> ToolRequest | None:
         payload = json.loads(text)
     except (json.JSONDecodeError, TypeError) as exc:
         raise ToolRequestError("Malformed JSON tool request") from exc
+    # Model-facing action proposals normalize into the existing untrusted
+    # contract. Keep legacy textual proposals, without accepting mixed envelopes.
+    if isinstance(payload, dict) and set(payload) == {"action", "parameters"}:
+        payload = {"tool": payload["action"], "arguments": payload["parameters"]}
     if not isinstance(payload, dict) or set(payload) != {"tool", "arguments"}:
         raise ToolRequestError("Tool request must contain only tool and arguments")
     tool = payload["tool"]

@@ -1,6 +1,8 @@
 """Bounded blue-team exercise; these fixtures are not universal LLM defenses."""
 from dataclasses import asdict, dataclass, field
 import re
+from time import perf_counter
+from app.action_diagnostics import log_failure
 from typing import Any, TYPE_CHECKING, Callable, Awaitable
 
 from app.calibration import PI001_OVERRIDE_PATTERN, PI001_REFERENCE_PATTERN
@@ -237,8 +239,11 @@ async def run_defense_suite(session: "LabSession", llm: Any, documents: "Documen
         target = LabSession(id=session.id, challenge_id=session.challenge_id, flag=session.flag)
         target.defense.configuration = session.defense.configuration
         status = "PASS"
+        started = perf_counter()
+        failure_stage = 'application_processing'
         try:
             for prompt in case.prompts or ("",):
+                failure_stage = 'application_processing'
                 if case.document_id is not None:
                     if documents is None:
                         raise ValueError("Document registry required")
@@ -246,6 +251,7 @@ async def run_defense_suite(session: "LabSession", llm: Any, documents: "Documen
                     turn = await process_defense_document(target, llm, documents, case.document_task)
                 else:
                     turn = await process_defense_turn(target, llm, prompt)
+                failure_stage = 'regression_evaluation'
                 passed = lab.evaluate_turn(case, turn) if lab.evaluate_turn else not (
                     turn["disclosed"] or turn.get("policy_violation", False) or
                     (case.benign and not lab.useful_response(turn["response"]))
@@ -253,7 +259,11 @@ async def run_defense_suite(session: "LabSession", llm: Any, documents: "Documen
                 if not passed:
                     status = "FAIL"
                     break
-        except Exception:
+        except Exception as exc:
+            # Action processing logs its precise stage before rethrowing; the
+            # separate suite evaluator also needs classification when it fails.
+            if lab.id == 'BT-005' and failure_stage == 'regression_evaluation':
+                log_failure(exc, lab.id, failure_stage, started)
             status = "ERROR"
         results.append(lab.result_for(case, status))
     return DefenseReport(tuple(results), session.defense.configuration.public(lab.controls), lab.id).public()

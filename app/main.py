@@ -17,6 +17,7 @@ from typing import Literal
 from dataclasses import asdict
 
 from app.chat_service import process_chat_turn
+from app.action_diagnostics import request_id as action_request_id
 from app.calibration import calibrated_document_response
 from app.challenges import Challenge, ChallengeRegistry
 from app.config import Settings, settings
@@ -144,7 +145,11 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
                     response = JSONResponse({"detail": "Request body too large"}, status_code=413)
                 else:
                     try:
-                        response = await call_next(request)
+                        token = action_request_id.set(request_id)
+                        try:
+                            response = await call_next(request)
+                        finally:
+                            action_request_id.reset(token)
                     except Exception as exc:
                         logger.error(
                             "request_failed request_id=%s path=%s error_type=%s",

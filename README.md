@@ -604,6 +604,33 @@ execution call. After a successful provider call, the existing bounded support
 intent adapter may compile ordinary requests into proposals for reproducibility.
 Structured model proposals retain their exact schema requirements.
 
+The model-facing protocol uses ordinary message text containing
+`{"action":"lookup_customer","parameters":{"customer_id":"CUST-1842"}}`.
+Both labs describe proposals as untrusted application data and prohibit native
+function/tool invocation. The parser normalizes this envelope into the existing
+contract; legacy textual `tool`/`arguments` proposals still pass the same checks.
+No provider-native capabilities are registered. For `api.groq.com`, the adapter
+explicitly sets `tool_choice: "none"`, Groq's documented no-tools default.
+Native-call responses (including mixed text/call responses), null content and
+empty content fail safely before intent adaptation or dispatch.
+
+The production export recorded 26 HTTP 400 `tool_use_failed` responses with
+"Tool choice is none, but model called a tool", and two `output_parse_failed`
+responses. The neutral protocol removes the native-call cues; its effectiveness
+still requires live acceptance with Groq. Neither error is retried or recovered
+from provider `failed_generation`. Both retain the generic public provider error.
+JSON-only/strict structured output is not enabled because the existing protocol
+also supports prose and exercises application-side rejection of invalid proposals.
+Relevant provider documentation: [API reference](https://console.groq.com/docs/api-reference)
+and [structured outputs](https://console.groq.com/docs/structured-outputs).
+
+05B logs content-free failure diagnostics at warning level: request ID, lab ID,
+processing stage, exception class, bounded upstream status, known provider error
+category and elapsed time. Provider, intent adaptation, proposal validation,
+authorization, approval, simulated execution, action evaluation and regression
+evaluation remain distinguishable internally while public errors stay generic.
+These records contain no prompts, responses, arguments, customer content or flags.
+
 | Control ID | Security layer | Semantics |
 |---|---|---|
 | `tool_allowlist` | CAPABILITY | Permit lookup_customer, read_ticket and issue_refund. Exclude drafting; an allowed refund remains capable of unauthorized execution. |
