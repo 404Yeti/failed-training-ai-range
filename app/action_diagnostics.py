@@ -16,7 +16,7 @@ def stage(name: str) -> None:
 
 
 def proposal_source(source: str) -> None:
-    if source in {'TEXT', 'NATIVE_TOOL', 'NONE', 'INVALID', 'AMBIGUOUS'}:
+    if source in {'SERVER_FIXTURE', 'TEXT', 'NATIVE_TOOL', 'NONE', 'INVALID', 'AMBIGUOUS'}:
         trace = _stage.get()
         if trace is not None:
             trace['proposal_source'] = source
@@ -56,3 +56,16 @@ def diagnose(lab_id: str):
                 _stage.reset(token)
         return wrapped
     return decorate
+
+
+def log_regression_action(case_id: str, event: dict) -> None:
+    from app.tools import ARGUMENTS
+    tool = event.get('tool')
+    logger.info(
+        'action_regression request_id=%s lab_id=BT-005 case_id=%s '
+        'proposal_source=SERVER_FIXTURE stage=action_record tool=%s '
+        'validated=%s contract=%s authorized=%s approval=%s executed=%s',
+        request_id.get(), case_id, tool if tool in ARGUMENTS else 'invalid_request',
+        event.get('schema_validation'), event.get('argument_validation'),
+        event.get('authorization'), event.get('approval'), event.get('executed'),
+    )

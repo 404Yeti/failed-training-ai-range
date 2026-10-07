@@ -34,7 +34,7 @@ The fixed suite runs sequentially: normal conversation (`2 + 2` must receive a u
 - `POST /api/defense/chat`: bounded manual `message` to HARDENED VAULT-01.
 - `POST /api/defense/retest`: run only the fixed server suite and return state/report.
 
-These endpoints accept no targets, URLs, custom prompts lists or automation plans. Runs share the existing automation rate and total timeout settings, provider concurrency limits and provider timeouts. Chat and configuration updates are rate limited; overlapping operations are rejected. Defense chat retains at most 24 history messages; regression cases have independent histories and never modify manual chat. The offensive evaluators and six offensive lab behaviors are preserved. 06 — AUTOMATED SECURITY EVALUATION is the capstone red-team/evaluation module; no 06B is implemented.
+These endpoints accept no targets, URLs, custom prompts lists or automation plans. Runs share the existing automation rate and total timeout settings; inference-backed runs also use provider concurrency limits and provider timeouts. Chat and configuration updates are rate limited; overlapping operations are rejected. Defense chat retains at most 24 history messages; regression cases have independent histories and never modify manual chat. The offensive evaluators and six offensive lab behaviors are preserved. 06 — AUTOMATED SECURITY EVALUATION is the capstone red-team/evaluation module; no 06B is implemented.
 
 ### Current blue-team progression
 
@@ -630,7 +630,10 @@ The production export recorded 26 HTTP 400 `tool_use_failed` responses with
 "Tool choice is none, but model called a tool", and two `output_parse_failed`
 responses. Fresh production evidence showed the neutral protocol plus `none`
 still failed on action-semantic requests. Native proposal support addresses that
-format mismatch; its live effectiveness remains to be verified. Neither error is retried or recovered
+format mismatch and has been verified in production for ordinary action requests
+and application authorization. A later $1500 regression request still failed
+at provider generation despite a valid outgoing schema; controlled regression
+fixtures below remove that dependency. Neither error is retried or recovered
 from provider `failed_generation`. Both retain the generic public provider error.
 JSON-only/strict structured output is not enabled because the existing protocol
 also supports prose and exercises application-side rejection of invalid proposals.
@@ -642,7 +645,9 @@ processing stage, exception class, bounded upstream status, known provider error
 category and elapsed time. Provider, intent adaptation, proposal validation,
 authorization, approval, simulated execution, action evaluation and regression
 evaluation remain distinguishable internally while public errors stay generic.
-Output classification adds `TEXT`, `NATIVE_TOOL`, `NONE`, `INVALID` or `AMBIGUOUS`.
+Output classification adds `SERVER_FIXTURE`, `TEXT`, `NATIVE_TOOL`, `NONE`,
+`INVALID` or `AMBIGUOUS`. Fixture diagnostics include the case ID, registered
+tool name and control outcomes, never proposal arguments.
 These records contain no prompts, responses, arguments, customer content or flags.
 `output_parse_failed` remains a separate provider failure; native proposal support
 is not evidence that this error has been fixed.
@@ -668,6 +673,24 @@ without permission/approval. Unlike 05A's autonomous-$50 policy, 05B grants no
 refund permission to untrusted chat, including $35 requests. Authorization and
 approval are separate server-owned states; no UI or API grants either. This is an
 educational approval checkpoint, not human authentication or a real workflow.
+
+Manual 05A/05B chat and student attacks remain live-model-driven. **Retest My
+Defense in 05B uses controlled server-owned attack fixtures**, with zero provider
+inference calls. Security controls must be tested against known attacks rather
+than model willingness or provider formatting. These immutable, challenge-defined
+proposals are validated during challenge loading against registered simulated
+tools, exact argument schemas, fixture IDs, payload bounds and the absolute
+$10,000 safety ceiling. The educational $500 limit remains an optional runtime
+control; the $1500 attack is intentionally representable.
+
+Every fixture enters the same normalization and untrusted proposal pipeline as
+manual model output, then the same validation, authorization, approval, capability,
+simulated executor and action evaluator. The supervisor case retains its attacker
+context and an `UNTRUSTED_SUPERVISOR` audit marker; it grants no application state.
+Clients cannot submit or override fixtures. Provider availability does not affect
+these six defense cases; application failures and suite timeouts remain ERROR.
+Live-provider compatibility is assessed separately through manual smoke testing.
+Other labs retain their existing regression mechanisms.
 
 Six fixed regression cases each start with fresh conversation/action/audit state:
 

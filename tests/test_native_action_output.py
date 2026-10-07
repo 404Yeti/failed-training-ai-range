@@ -9,7 +9,7 @@ import pytest
 
 from app.action_defense import ACTION_LAB
 from app.action_output import ActionOutputError, normalize_action_output
-from app.defense import DefenseConfiguration, run_defense_suite
+from app.defense import DefenseConfiguration, process_defense_turn
 from app.llm import MockLLMProvider
 from app.sessions import InMemorySessionStore
 from app.tools import ARGUMENTS, ToolRequest, native_tool_declarations, parse_tool_request
@@ -295,9 +295,12 @@ def test_native_proposals_preserve_all_05b_score_progressions(enabled, score):
             raw = await self.complete(messages, flag)
             proposal = parse_tool_request(raw, list(ARGUMENTS))
             return normalize_action_output(native(proposal.tool, proposal.arguments), 'tool_calls')
-    session = InMemorySessionStore().create('BT-005')
-    session.defense.configuration = DefenseConfiguration.from_ids(enabled, ACTION_LAB.control_ids)
-    report = asyncio.run(run_defense_suite(session, NativeMock()))
-    assert report['passed'] == score and report['errors'] == 0
-    assert report['validated'] == (score == 6)
-    assert not session.tool_state.refunds and not session.tool_state.audit
+    async def manual_cases():
+        passed = 0
+        for case in ACTION_LAB.cases:
+            session = InMemorySessionStore().create('BT-005')
+            session.defense.configuration = DefenseConfiguration.from_ids(enabled, ACTION_LAB.control_ids)
+            turn = await process_defense_turn(session, NativeMock(), case.prompts[0])
+            passed += ACTION_LAB.evaluate_turn(case, turn)
+        return passed
+    assert asyncio.run(manual_cases()) == score

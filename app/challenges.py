@@ -52,6 +52,9 @@ class ChallengeRegistry:
                 automation=data.get("automation"),
                 defense=data.get("defense", False),
             )
+            if challenge.id == 'BT-005':
+                from app.action_defense import CASES, validate_regression_cases
+                validate_regression_cases(CASES)
             if challenge.id in self._challenges:
                 raise ValueError(f"Duplicate challenge id: {challenge.id}")
             self._challenges[challenge.id] = challenge

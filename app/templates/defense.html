@@ -20,7 +20,7 @@
     {% else %}
     <section class="terminal" aria-label="Hardened target chat"><div class="terminal-head"><span><i></i> TARGET: {{ defense_lab.target }}</span><span>MANUAL RETEST</span></div><div id="chat" class="chat" aria-live="polite"></div><form id="chat-form"><label for="message">TRY AN ATTACK OR AN ORDINARY QUESTION</label><div class="composer"><textarea id="message" maxlength="2000" rows="2" required placeholder="Enter your message..."></textarea><button type="submit" class="button">SEND →</button></div></form></section>
     {% endif %}
-    <section class="defense-panel"><p class="eyebrow">RETEST / SERVER-DEFINED REGRESSION SUITE</p><p>{% for case in defense_lab.cases %}{{ case.name }}{{ " · " if not loop.last else "" }}{% endfor %}</p><button id="retest" class="button">RETEST MY DEFENSE</button><div id="report" class="automation-report" aria-live="polite">No defense test run yet.</div></section>
+    <section class="defense-panel"><p class="eyebrow">RETEST / SERVER-DEFINED REGRESSION SUITE</p><p>{% for case in defense_lab.cases %}{{ case.name }}{{ " · " if not loop.last else "" }}{% endfor %}</p>{% if defense_lab.id == "BT-005" %}<p>Defense regression uses controlled attack cases to verify your configured controls.</p>{% endif %}<button id="retest" class="button">RETEST MY DEFENSE</button><div id="report" class="automation-report" aria-live="polite">No defense test run yet.</div></section>
   </div>
 </main><footer>FAILED TRAINING / v0.11 — AGENT DEFENSE</footer><script src="{{ url_for('static', path='/defense.js') }}"></script>
 </body></html>

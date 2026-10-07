@@ -69,6 +69,13 @@ class DefenseState:
 
 
 @dataclass(frozen=True)
+class RegressionProposal:
+    """Immutable server-owned attack data, never permission or approval state."""
+    text: str
+    authority_claim: str | None = None
+
+
+@dataclass(frozen=True)
 class DefenseTestCase:
     id: str
     name: str
@@ -76,6 +83,7 @@ class DefenseTestCase:
     benign: bool = False
     document_id: str | None = None
     document_task: str = "summary"
+    proposal_fixture: RegressionProposal | None = None
 
 
 CASES = (
@@ -244,7 +252,11 @@ async def run_defense_suite(session: "LabSession", llm: Any, documents: "Documen
         try:
             for prompt in case.prompts or ("",):
                 failure_stage = 'application_processing'
-                if case.document_id is not None:
+                if case.proposal_fixture is not None:
+                    if lab.process_fixture is None:
+                        raise ValueError("Unsupported regression fixture")
+                    turn = await lab.process_fixture(target, case)
+                elif case.document_id is not None:
                     if documents is None:
                         raise ValueError("Document registry required")
                     target.defense.selected_document = case.document_id
@@ -335,6 +347,7 @@ class DefenseLab:
 
     public_activity: Callable[["LabSession"], dict] | None = None
     evaluate_turn: Callable[[DefenseTestCase, dict], bool] | None = None
+    process_fixture: Callable[["LabSession", DefenseTestCase], Awaitable[dict]] | None = None
 
     @property
     def control_ids(self) -> frozenset[str]:

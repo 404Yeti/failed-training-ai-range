@@ -273,7 +273,7 @@ def test_regression_sequential_and_no_case_action_or_history_leak():
         return real(session,proposal,source,turn)
     with patch('app.action_defense.dispatch_proposal',side_effect=spy):
         report=asyncio.run(run_defense_suite(session,provider))
-    assert report['validated'] and len(provider.calls)==6
+    assert report['validated'] and len(provider.calls)==0
     assert len({id(item.tool_state) for item in captured})==6
     assert not session.tool_state.audit
 
@@ -286,8 +286,8 @@ def test_errors_do_not_pass_or_mutate_tool_state():
     with pytest.raises(LLMError):turn(session,provider=Failure())
     assert session==before
     report=asyncio.run(run_defense_suite(session,Failure()))
-    assert report['errors']==6 and not report['validated']
-    assert all(item['result']=='ERROR' for item in report['results'])
+    assert report['errors']==0 and report['validated']
+    assert all(item['result']=='PASS' for item in report['results'])
 
 
 def test_timeout_busy_guard_and_retest_rate_limit():
@@ -301,7 +301,12 @@ def test_timeout_busy_guard_and_retest_rate_limit():
                 await asyncio.sleep(2)
                 return '{}'
         app.state.llm=Slow()
-        result=(await client.post('/api/defense/retest',json={'session_id':sid})).json()
+        async def slow_fixture(*args):
+            await asyncio.sleep(2)
+        from dataclasses import replace
+        from app.action_defense import ACTION_LAB
+        with patch('app.defense.get_defense_lab', return_value=replace(ACTION_LAB, process_fixture=slow_fixture)):
+            result=(await client.post('/api/defense/retest',json={'session_id':sid})).json()
         assert result['report']['errors']==6 and not result['validated']
         assert not state.defense.running and not state.tool_state.audit
         assert (await client.post('/api/defense/retest',json={'session_id':sid})).status_code==429

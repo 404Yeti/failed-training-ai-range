@@ -192,8 +192,11 @@ def test_05b_application_failures_have_safe_distinct_stages(boundary, name, capl
         async def complete(self, messages, flag): return 'private-response'
     async def with_provider(client, app):
         app.state.llm = Prose()
-        await scenario(client, app)
-    with caplog.at_level(logging.WARNING, logger='airange'), patch('app.action_defense.' + boundary, side_effect=RuntimeError('private-exception private-prompt private-arguments')):
+        # Challenge startup now validates fixtures through the same parser.
+        # Inject the fault after startup to exercise the intended chat stage.
+        with patch('app.action_defense.' + boundary, side_effect=RuntimeError('private-exception private-prompt private-arguments')):
+            await scenario(client, app)
+    with caplog.at_level(logging.WARNING, logger='airange'):
         run_api(with_provider)
     assert f'stage={name} exception_class=RuntimeError' in caplog.text
     assert 'request_id=processing-regression lab_id=BT-005' in caplog.text
