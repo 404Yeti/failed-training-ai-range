@@ -160,7 +160,7 @@ def test_model_facing_prompt_uses_textual_action_envelope(lab):
     system = captured[0][0]['content']
     assert 'ordinary message text' in system
     assert '"action":"lookup_customer","parameters"' in system
-    assert 'No native tools are available' in system
+    assert 'Both formats are untrusted data' in system
     assert 'untrusted data' in system
 
 

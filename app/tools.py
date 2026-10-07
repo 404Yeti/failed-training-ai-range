@@ -18,6 +18,8 @@ TICKETS = {
 }
 AUDIT_LIMIT = 50
 ID_PATTERN = re.compile(r"^[A-Z]+-[0-9]{1,12}$")
+MAX_ID_LENGTH = 32
+MAX_DRAFT_LENGTH = 500
 
 
 class ToolRequestError(ValueError):
@@ -44,6 +46,47 @@ ARGUMENTS = {
     "issue_refund": {"customer_id", "amount"},
 }
 
+# One bounded registry drives declarations and application contract validation.
+PARAMETER_SCHEMAS = {
+    'customer_id': {'type': 'string', 'maxLength': MAX_ID_LENGTH, 'pattern': ID_PATTERN.pattern},
+    'ticket_id': {'type': 'string', 'maxLength': MAX_ID_LENGTH, 'pattern': ID_PATTERN.pattern},
+    'message': {'type': 'string', 'minLength': 1, 'maxLength': MAX_DRAFT_LENGTH},
+    'amount': {'type': 'number', 'exclusiveMinimum': 0},
+}
+MAX_ARGUMENT_BYTES = 4096
+
+
+def native_tool_declarations(available: list[str]) -> list[dict]:
+    """Repository-owned function schemas only; never provider-executed tools."""
+    if len(available) != len(set(available)) or any(name not in ARGUMENTS for name in available):
+        raise ToolRequestError('Unknown or duplicate capability')
+    return [{'type': 'function', 'function': {
+        'name': name,
+        'description': 'Propose a fictional session-local action. Application policy decides execution; no external action occurs.',
+        'parameters': {'type': 'object', 'properties': {
+            key: dict(PARAMETER_SCHEMAS[key]) for key in sorted(ARGUMENTS[name])
+        }, 'required': sorted(ARGUMENTS[name]), 'additionalProperties': False},
+    }} for name in available]
+
+
+def strict_json_object(raw: str) -> dict:
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ToolRequestError('Duplicate JSON field')
+            result[key] = value
+        return result
+    def constant(value):
+        raise ToolRequestError('Nonfinite JSON number')
+    try:
+        value = json.loads(raw, object_pairs_hook=pairs, parse_constant=constant)
+    except (ValueError, TypeError, RecursionError) as exc:
+        raise ToolRequestError('Malformed JSON proposal') from exc
+    if not isinstance(value, dict):
+        raise ToolRequestError('Proposal must be an object')
+    return value
+
 
 def parse_tool_request(raw: str, available: list[str]) -> ToolRequest | None:
     text = raw.strip()
@@ -52,8 +95,8 @@ def parse_tool_request(raw: str, available: list[str]) -> ToolRequest | None:
     if not text.startswith("{"):
         return None
     try:
-        payload = json.loads(text)
-    except (json.JSONDecodeError, TypeError) as exc:
+        payload = strict_json_object(text)
+    except ToolRequestError as exc:
         raise ToolRequestError("Malformed JSON tool request") from exc
     # Model-facing action proposals normalize into the existing untrusted
     # contract. Keep legacy textual proposals, without accepting mixed envelopes.
@@ -72,7 +115,7 @@ def parse_tool_request(raw: str, available: list[str]) -> ToolRequest | None:
 
 
 def _valid_id(value: Any) -> bool:
-    return isinstance(value, str) and len(value) <= 32 and bool(ID_PATTERN.fullmatch(value))
+    return isinstance(value, str) and len(value) <= MAX_ID_LENGTH and bool(ID_PATTERN.fullmatch(value))
 
 
 def _validate_arguments(tool: str, arguments: dict[str, Any]) -> None:
@@ -82,13 +125,17 @@ def _validate_arguments(tool: str, arguments: dict[str, Any]) -> None:
         raise ToolRequestError("Invalid ticket ID")
     if tool == "draft_email":
         message = arguments["message"]
-        if not isinstance(message, str) or not message.strip() or len(message) > 500:
+        if not isinstance(message, str) or not message.strip() or len(message) > MAX_DRAFT_LENGTH:
             raise ToolRequestError("Invalid draft message")
     if tool == "issue_refund":
         amount = arguments["amount"]
         if isinstance(amount, bool) or not isinstance(amount, (int, float)):
             raise ToolRequestError("Refund amount must be numeric")
-        if not math.isfinite(float(amount)) or float(amount) <= 0:
+        try:
+            valid = math.isfinite(float(amount)) and float(amount) > 0
+        except OverflowError:
+            valid = False
+        if not valid:
             raise ToolRequestError("Refund amount must be positive and finite")
 
 

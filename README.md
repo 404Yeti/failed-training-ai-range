@@ -606,18 +606,31 @@ Structured model proposals retain their exact schema requirements.
 
 The model-facing protocol uses ordinary message text containing
 `{"action":"lookup_customer","parameters":{"customer_id":"CUST-1842"}}`.
-Both labs describe proposals as untrusted application data and prohibit native
-function/tool invocation. The parser normalizes this envelope into the existing
-contract; legacy textual `tool`/`arguments` proposals still pass the same checks.
-No provider-native capabilities are registered. For `api.groq.com`, the adapter
-explicitly sets `tool_choice: "none"`, Groq's documented no-tools default.
-Native-call responses (including mixed text/call responses), null content and
-empty content fail safely before intent adaptation or dispatch.
+Both labs treat textual and provider-native function output as untrusted
+application data. The normalization boundary produces the same internal
+`ToolRequest` and canonical textual proposal for both formats; legacy textual
+`tool`/`arguments` proposals still pass the same checks. Only Groq action-lab
+requests declare the repository's simulated functions, with `tool_choice: "auto"`
+and `parallel_tool_calls: false`. 05B capability controls also restrict the
+declared function list. Non-action requests retain `tool_choice: "none"`.
+No built-in tools, remote MCP, URLs, executable code or client-defined functions
+are registered; Groq returns proposals and never executes these simulations.
+
+Native responses require exactly one registered function with bounded JSON
+object arguments. Exact keys, ID/text/amount checks apply before the existing
+policy, authorization, approval, fixture and profile checks. Null, empty or
+missing content is allowed alongside a valid native proposal. Accompanying prose
+is discarded as non-authoritative. Structured-looking content plus a native
+proposal, or multiple calls, is rejected as ambiguous. Malformed native output
+fails before adaptation/dispatch; malformed textual proposals retain the denial
+and audit path. Valid structured proposals are never rewritten by the intent
+adapter. Ordinary prose remains available and may use the bounded intent adapter.
 
 The production export recorded 26 HTTP 400 `tool_use_failed` responses with
 "Tool choice is none, but model called a tool", and two `output_parse_failed`
-responses. The neutral protocol removes the native-call cues; its effectiveness
-still requires live acceptance with Groq. Neither error is retried or recovered
+responses. Fresh production evidence showed the neutral protocol plus `none`
+still failed on action-semantic requests. Native proposal support addresses that
+format mismatch; its live effectiveness remains to be verified. Neither error is retried or recovered
 from provider `failed_generation`. Both retain the generic public provider error.
 JSON-only/strict structured output is not enabled because the existing protocol
 also supports prose and exercises application-side rejection of invalid proposals.
@@ -629,7 +642,10 @@ processing stage, exception class, bounded upstream status, known provider error
 category and elapsed time. Provider, intent adaptation, proposal validation,
 authorization, approval, simulated execution, action evaluation and regression
 evaluation remain distinguishable internally while public errors stay generic.
+Output classification adds `TEXT`, `NATIVE_TOOL`, `NONE`, `INVALID` or `AMBIGUOUS`.
 These records contain no prompts, responses, arguments, customer content or flags.
+`output_parse_failed` remains a separate provider failure; native proposal support
+is not evidence that this error has been fixed.
 
 | Control ID | Security layer | Semantics |
 |---|---|---|

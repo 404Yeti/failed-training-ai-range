@@ -10,6 +10,8 @@ from urllib import error, request
 from urllib.parse import urlparse
 
 from app.config import Settings
+from app.action_output import ActionOutput, ActionOutputError, normalize_action_output
+from app.tools import native_tool_declarations, strict_json_object
 
 
 def _diagnostic_token(value: object) -> str | None:
@@ -81,6 +83,9 @@ class LLMProvider(ABC):
     @abstractmethod
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
         raise NotImplementedError
+
+    async def complete_actions(self, messages, session_flag, available):
+        return normalize_action_output({'content': await self.complete(messages, session_flag)})
 
 
 class MockLLMProvider(LLMProvider):
@@ -187,15 +192,24 @@ class OpenAICompatibleProvider(LLMProvider):
         self.max_response_bytes = settings.max_llm_response_bytes
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
+        return await self._complete(messages, session_flag)
+
+    async def complete_actions(self, messages, session_flag, available):
+        return await self._complete(messages, session_flag, available)
+
+    async def _complete(self, messages, session_flag, available=None):
         del session_flag  # Already present inside the server-created system message.
         body = {"model": self.model, "messages": messages}
         if self.is_groq:
-            # Groq documents none as the no-tools default. Make that boundary
-            # explicit, without registering native or provider-executed tools.
-            body["tool_choice"] = "none"
+            if available:
+                body['tools'] = native_tool_declarations(available)
+                body['tool_choice'] = 'auto'
+                body['parallel_tool_calls'] = False
+            else:
+                body['tool_choice'] = 'none'
         payload = json.dumps(body).encode()
 
-        def send() -> str:
+        def send() -> str | ActionOutput:
             req = request.Request(
                 self.url,
                 data=payload,
@@ -214,12 +228,17 @@ class OpenAICompatibleProvider(LLMProvider):
                     raw_body = response.read(self.max_response_bytes + 1)
                 if len(raw_body) > self.max_response_bytes:
                     raise ValueError("Provider response exceeded limit")
-                body = json.loads(raw_body)
+                body = strict_json_object(raw_body)
+                if available is not None:
+                    choices = body['choices']
+                    if not isinstance(choices, list) or len(choices) != 1:
+                        raise ActionOutputError('AMBIGUOUS')
+                    choice = choices[0]
+                    return normalize_action_output(choice['message'], choice.get('finish_reason'))
                 message = body["choices"][0]["message"]
                 if not isinstance(message, dict):
                     raise TypeError("Provider message is not an object")
-                # Native calls are not our textual proposal protocol. Reject even
-                # mixed text/call responses; never recover failed_generation.
+                # Non-action labs have no native proposal surface.
                 if message.get("tool_calls") or message.get("function_call"):
                     raise LLMError("The language model provider request failed")
                 content = message["content"]
@@ -234,6 +253,10 @@ class OpenAICompatibleProvider(LLMProvider):
                     "The language model provider request failed", upstream_status=status,
                     **diagnostics,
                 ) from exc
+            except ActionOutputError as exc:
+                from app.action_diagnostics import proposal_source
+                proposal_source(exc.source)
+                raise LLMError("The language model provider request failed") from exc
             except (
                 error.URLError,
                 TimeoutError,
@@ -244,6 +267,8 @@ class OpenAICompatibleProvider(LLMProvider):
                 json.JSONDecodeError,
                 UnicodeDecodeError,
                 ValueError,
+                AttributeError,
+                RecursionError,
             ) as exc:
                 raise LLMError("The language model provider request failed") from exc
 
@@ -269,6 +294,13 @@ class LimitedLLMProvider(LLMProvider):
         self.peak_active = 0
 
     async def complete(self, messages: list[dict[str, str]], session_flag: str) -> str:
+        return await self._run(lambda: self.provider.complete(messages, session_flag))
+
+    async def complete_actions(self, messages, session_flag, available):
+        from app.action_output import complete_action_output
+        return await self._run(lambda: complete_action_output(self.provider, messages, session_flag, available))
+
+    async def _run(self, operation):
         try:
             await asyncio.wait_for(self._semaphore.acquire(), timeout=self.queue_timeout)
         except asyncio.TimeoutError as exc:
@@ -278,7 +310,7 @@ class LimitedLLMProvider(LLMProvider):
             self.peak_active = max(self.peak_active, self.active)
             started = perf_counter()
             try:
-                result = await self.provider.complete(messages, session_flag)
+                result = await operation()
                 logger.info("provider_request status=ok duration_ms=%d", round((perf_counter() - started) * 1000))
                 return result
             except Exception as exc:

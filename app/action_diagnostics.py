@@ -15,6 +15,14 @@ def stage(name: str) -> None:
         trace['stage'] = name
 
 
+def proposal_source(source: str) -> None:
+    if source in {'TEXT', 'NATIVE_TOOL', 'NONE', 'INVALID', 'AMBIGUOUS'}:
+        trace = _stage.get()
+        if trace is not None:
+            trace['proposal_source'] = source
+        logger.info('action_output request_id=%s proposal_source=%s', request_id.get(), source)
+
+
 def log_failure(exc: Exception, lab_id: str, name: str, started: float) -> None:
     from app.llm import LLMError
 
@@ -24,10 +32,11 @@ def log_failure(exc: Exception, lab_id: str, name: str, started: float) -> None:
         category = 'other' if provider else 'not_applicable'
     logger.warning(
         'action_failure request_id=%s lab_id=%s stage=%s exception_class=%s '
-        'provider_status=%s provider_category=%s duration_ms=%d',
+        'provider_status=%s provider_category=%s duration_ms=%d proposal_source=%s',
         request_id.get(), lab_id, name, type(exc).__name__,
         exc.upstream_status if provider else None, category,
         round((perf_counter() - started) * 1000),
+        (_stage.get() or {}).get('proposal_source', 'NONE'),
     )
 
 

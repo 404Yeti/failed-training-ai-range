@@ -2,6 +2,7 @@ import copy
 from typing import Any
 
 from app.agent import process_agent_output
+from app.action_output import complete_action_output
 from app.calibration import calibrated_messages, calibrated_response, simulated_tool_intent
 from app.challenges import Challenge
 from app.guards import (
@@ -38,7 +39,12 @@ async def process_chat_turn(
     messages = [{"role": "system", "content": system_prompt}, *session.history]
     messages = calibrated_messages(challenge, message, session.flag, messages)
     try:
-        raw_response = await llm.complete(messages, session.flag)
+        action_output = None
+        if challenge.tools:
+            action_output = await complete_action_output(llm, messages, session.flag, challenge.tools.get('available', []))
+            raw_response = action_output.text
+        else:
+            raw_response = await llm.complete(messages, session.flag)
     except Exception:
         session.history.pop()
         raise
@@ -48,7 +54,7 @@ async def process_chat_turn(
     raw_response = calibrated_response(challenge, message, session.flag, raw_response, next_progression)
     if challenge.tools:
         turn = sum(item["role"] == "user" for item in session.history)
-        tool_response = simulated_tool_intent(message, raw_response) if challenge.id == "AG-001" else raw_response
+        tool_response = simulated_tool_intent(message, raw_response) if challenge.id == "AG-001" and action_output.source == 'NONE' else raw_response
         adapted = tool_response != raw_response
         outcome = process_agent_output(
             tool_response,

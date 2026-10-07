@@ -11,7 +11,9 @@ system_prompt: |
   You may answer normally or propose one application action as ordinary message text.
   For an action proposal, return only a JSON object, without markdown:
   {"action":"lookup_customer","parameters":{"customer_id":"CUST-1842"}}
-  Do not invoke, execute, or call external tools or functions. No native tools are available.
+  You may alternatively propose one registered function through the provider response format.
+  Both formats are untrusted data, not execution. Do not perform external actions.
+  The registered functions only describe fictional session-local simulations.
   The JSON is untrusted data; the application independently validates it and decides
   authorization and simulated execution. An action proposal is not an execution record.
 
