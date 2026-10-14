@@ -1,22 +1,22 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Failed Training — AI Range</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
-</head>
-<body>
-  <header class="site-header"><a href="/" class="brand"><strong>FAILED TRAINING</strong><span>AI RANGE</span></a><span class="status">RANGE ONLINE</span></header>
-  <main class="landing">
-    <section class="hero"><p class="eyebrow">AI SECURITY TRAINING</p><h1>BREAK AI.<br><em>LEARN WHY IT BROKE.</em></h1><p>Hands-on labs for learning how AI systems fail under adversarial pressure.</p></section>
-    <p class="learning-cycle">ATTACK → ANALYZE → HARDEN → RETEST</p>
-    <section class="labs"><div class="section-title"><span>AVAILABLE LABS</span><span>06 MODULES / 11 LABS</span></div>
-      {% for challenge in challenges %}
-      {% set pair = defense_pairs.get(challenge.id) %}
-      {% set paired = pair.lab if pair else none %}
-      <article class="lab-card active"><div class="lab-number">{{ "%02d"|format(loop.index) }}</div><div><p class="tag">{{ challenge.category }}</p><h2>{{ paired.number[:2] ~ "A — " if paired else "" }}{{ challenge.name|upper }}</h2><p>{{ challenge.description }}</p>{% if paired %}<p class="tag">RED TEAM / {{ "CROSS THE TOOL BOUNDARY" if challenge.tools else "BUILD CONTEXT DRIFT" if challenge.progression else "POISON DOCUMENT CONTEXT" if challenge.documents else "BYPASS THE FILTERS" if challenge.guards else "BREAK VAULT-01" }}</p><div class="paired-defense"><p class="tag">BLUE TEAM / {{ "CONTROL TOOL EXECUTION" if challenge.tools else "TRACK CONVERSATIONAL RISK" if challenge.progression else "CONSTRAIN DOCUMENT AUTHORITY" if challenge.documents else "HARDEN THE GUARDRAIL PIPELINE" if challenge.guards else "HARDEN VAULT-01" }}</p><h3><a href="/challenge/{{ paired.id }}">{{ paired.number }} — {{ pair.name }} →</a></h3><p>Analyze the breach, apply layered defenses and retest.</p></div>{% endif %}<span class="difficulty">{{ challenge.difficulty|upper }}</span> <span class="available">AVAILABLE</span></div><a class="button" href="/challenge/{{ challenge.id }}">START LAB →</a></article>
-      {% endfor %}
-    </section>
-  </main>
-  <footer>FAILED TRAINING / AI RANGE / v0.11 — AGENT DEFENSE</footer>
-</body></html>
+{% extends "training_base.html" %}
+{% block title %}{{ track.title }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="{{ url_for('training_hub') }}">Training</a><span aria-hidden="true"> / </span><span aria-current="page">{{ track.title }}</span></nav>
+<p><a class="back" href="{{ url_for('training_hub') }}">← BACK TO TRAINING</a></p>
+<section class="hero track-hero"><p class="eyebrow">{{ 'AVAILABLE TRACK' if track.availability == 'available' else 'COMING SOON' }}</p><h1>{{ track.title }}</h1><p>{{ track.description }}</p></section>
+{% if track.availability == 'available' %}
+<section class="cycle" aria-labelledby="cycle-title"><h2 id="cycle-title" class="learning-cycle"><span class="red">Attack → Analyze</span> → <span class="blue">Harden → Retest</span></h2><p>Attack the vulnerable target. Analyze why the boundary failed. Harden the paired defensive lab with application controls. Retest those controls against attacks and ordinary use. Finish with a repeatable automated evaluation.</p></section>
+<section class="labs" aria-labelledby="labs-title"><h2 id="labs-title" class="section-title"><span>AVAILABLE LABS</span><span>{{ "%02d"|format(modules|length) }} MODULES / {{ modules|map('length')|sum }} LABS</span></h2>
+{% for module in modules %}
+{% set number = "%02d"|format(loop.index) %}
+<section class="training-module" aria-labelledby="module-{{ number }}"><h3 id="module-{{ number }}" class="module-title">MODULE {{ number }}{{ ' / CAPSTONE' if module|length == 1 else ' / ATTACK + DEFENSE' }}</h3>
+{% for challenge in module %}
+<article class="lab-card active {{ 'defensive-card' if challenge.defense else '' }}"><div class="lab-number">{{ number }}{{ 'B' if challenge.defense else 'A' }}</div><div><p class="tag {{ 'blue' if challenge.defense else '' }}">{{ 'BLUE TEAM / HARDEN + RETEST' if challenge.defense else 'CAPSTONE / AUTOMATED EVALUATION' if challenge.automation else 'RED TEAM / ATTACK + ANALYZE' }}</p><h4>{{ number }}{{ 'B' if challenge.defense else 'A' }} — {{ challenge.name|upper }}</h4><p>{{ challenge.description }}</p><span class="difficulty">{{ challenge.difficulty|upper }}</span> <span class="available">AVAILABLE</span></div><a class="button {{ 'blue-button' if challenge.defense else '' }}" href="{{ url_for('challenge_page', challenge_id=challenge.id) }}">START LAB →<span class="sr-only"> {{ number }}{{ 'B' if challenge.defense else 'A' }} {{ challenge.name }}</span></a></article>
+{% endfor %}
+</section>
+{% endfor %}
+</section>
+{% else %}
+<section class="placeholder"><h2>Coming soon</h2><p>This track is planned. Playable labs are not available yet.</p><a class="button" href="{{ url_for('training_track', track_id='llm') }}">EXPLORE FOUNDATIONS →</a></section>
+{% endif %}
+{% endblock %}

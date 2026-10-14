@@ -1,0 +1,9 @@
+{% extends "training_base.html" %}
+{% block content %}
+<section class="hero"><p class="eyebrow">TRAINING HUB</p><h1>Choose your<br><em>training path</em></h1><p>Learn how AI systems fail under adversarial pressure, then build and test their defenses.</p></section>
+<section aria-labelledby="paths-title"><h2 id="paths-title" class="section-title">TRAINING PATHS</h2><div class="track-grid">
+{% for track in tracks %}
+<article class="track-card"><p class="tag">TRACK {{ "%02d"|format(track.order) }}</p><p class="{{ 'available' if track.availability == 'available' else 'coming-soon' }}">{{ 'AVAILABLE' if track.availability == 'available' else 'COMING SOON' }}</p><h2>{{ track.title }}</h2><p>{{ track.description }}</p><a class="button {{ 'secondary' if track.availability != 'available' else '' }}" href="{{ url_for('training_track', track_id=track.id) }}">{{ 'EXPLORE TRACK' if track.availability == 'available' else 'VIEW PLANNED TRACK' }} →<span class="sr-only"> {{ track.title }}</span></a></article>
+{% endfor %}
+</div></section>
+{% endblock %}

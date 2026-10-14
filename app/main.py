@@ -20,6 +20,7 @@ from app.chat_service import process_chat_turn
 from app.action_diagnostics import request_id as action_request_id
 from app.calibration import calibrated_document_response
 from app.challenges import Challenge, ChallengeRegistry
+from app.training import TrainingCatalog
 from app.config import Settings, settings
 from app.defense import (
     DefenseConfiguration, get_defense_lab, process_defense_turn, public_state,
@@ -89,6 +90,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         application.state.challenges = ChallengeRegistry(configured.challenge_dir)
+        application.state.training = TrainingCatalog(application.state.challenges)
         application.state.documents = DocumentRegistry(
             configured.document_dir, application.state.challenges.all()
         )
@@ -193,18 +195,30 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     async def health():
         return {"status": "ok"}
 
+    @application.get("/training", response_class=HTMLResponse)
+    async def training_hub(request: Request):
+        return templates.TemplateResponse(
+            request=request, name="training.html",
+            context={"tracks": request.app.state.training.tracks},
+        )
+
     @application.get("/", response_class=HTMLResponse)
     async def index(request: Request):
+        # Preserve the original catalog entry point and its bookmarks.
+        return await training_track(request, "llm")
+
+    @application.get("/training/{track_id}", response_class=HTMLResponse)
+    async def training_track(request: Request, track_id: str):
+        track = request.app.state.training.get(track_id)
+        if track is None:
+            raise HTTPException(status_code=404, detail="Training track not found")
+        modules = [
+            [request.app.state.challenges.get(challenge_id) for challenge_id in module]
+            for module in track.modules
+        ]
         return templates.TemplateResponse(
-            request=request,
-            name="index.html",
-            context={
-                "challenges": [c for c in request.app.state.challenges.all() if not c.defense],
-                "defense_pairs": {
-                    get_defense_lab(c.id).paired_id: {"lab": get_defense_lab(c.id), "name": c.name}
-                    for c in request.app.state.challenges.all() if c.defense
-                },
-            },
+            request=request, name="index.html",
+            context={"track": track, "modules": modules},
         )
 
     @application.get("/challenge/{challenge_id}", response_class=HTMLResponse)

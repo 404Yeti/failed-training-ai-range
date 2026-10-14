@@ -2,7 +2,8 @@
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ defense_lab.number }} — {{ challenge.name }}</title><link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}"></head>
 <body class="blue-team" data-challenge-id="{{ challenge.id }}" data-character="{{ defense_lab.target }}" data-document-mode="{{ 'true' if defense_lab.process_document else 'false' }}">
-<header class="site-header"><a href="/" class="brand"><strong>FAILED TRAINING</strong><span>AI RANGE</span></a><a href="/" class="back">← EXIT LAB</a></header>
+<header class="site-header"><a href="/training" class="brand"><strong>FAILED TRAINING</strong><span>AI RANGE</span></a><a href="/training/llm" class="back">← EXIT LAB</a></header>
+<nav class="breadcrumbs lab-breadcrumbs" aria-label="Breadcrumb"><a href="/training">Training</a><span aria-hidden="true"> / </span><a href="/training/llm">Foundations</a><span aria-hidden="true"> / </span><span aria-current="page">{{ challenge.name }}</span></nav>
 <main class="challenge-layout">
   <aside class="brief"><p class="eyebrow">BLUE TEAM / LAB {{ defense_lab.number }}</p><h1>{{ challenge.name }}</h1><p class="learning-cycle">ATTACK → ANALYZE → HARDEN → RETEST</p><dl><dt>TARGET</dt><dd>{{ defense_lab.target }}</dd><dt>MISSION</dt><dd>{{ challenge.objective }}</dd></dl>
     <h2>WHY IT BROKE</h2><p>After <a class="blue" href="/challenge/{{ defense_lab.paired_id }}">{{ defense_lab.paired_name }}</a>: {{ defense_lab.analysis }}</p><p>{{ defense_lab.objective }}</p><small>These are bounded educational controls. {{ defense_lab.caution }}</small><p><button id="reset" class="button secondary">RESET LAB</button></p>
